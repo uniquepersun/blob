@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/abhay/blob/internal/game"
+	"github.com/uniquepersun/blob/internal/game"
 )
 
 // Look and feel. Dark, misty, a little warm: Silksong-ish dusk, with the

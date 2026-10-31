@@ -21,10 +21,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/abhay/blob/internal/app"
-	"github.com/abhay/blob/internal/hook"
-	"github.com/abhay/blob/internal/install"
-	"github.com/abhay/blob/internal/ipc"
+	"github.com/uniquepersun/blob/internal/app"
+	"github.com/uniquepersun/blob/internal/hook"
+	"github.com/uniquepersun/blob/internal/install"
+	"github.com/uniquepersun/blob/internal/ipc"
 )
 
 const version = "0.1.0"

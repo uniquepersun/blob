@@ -3,7 +3,7 @@ package input
 import (
 	"testing"
 
-	"github.com/abhay/blob/internal/game"
+	"github.com/uniquepersun/blob/internal/game"
 )
 
 func TestFallbackHoldSurvivesRepeatDelayThenStops(t *testing.T) {

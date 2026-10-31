@@ -9,7 +9,7 @@
 package input
 
 import (
-	"github.com/abhay/blob/internal/game"
+	"github.com/uniquepersun/blob/internal/game"
 )
 
 const (

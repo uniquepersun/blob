@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/abhay/blob/internal/ipc"
+	"github.com/uniquepersun/blob/internal/ipc"
 )
 
 // Result is what the hook process should do.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/abhay/blob/internal/game"
+	"github.com/uniquepersun/blob/internal/game"
 )
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)

@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
 
-	"github.com/abhay/blob/internal/ipc"
+	"github.com/uniquepersun/blob/internal/ipc"
 )
 
 // Messages from the wrapper's goroutines into the Bubble Tea loop.

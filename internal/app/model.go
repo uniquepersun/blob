@@ -13,10 +13,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/abhay/blob/internal/game"
-	"github.com/abhay/blob/internal/input"
-	"github.com/abhay/blob/internal/ipc"
-	"github.com/abhay/blob/internal/render"
+	"github.com/uniquepersun/blob/internal/game"
+	"github.com/uniquepersun/blob/internal/input"
+	"github.com/uniquepersun/blob/internal/ipc"
+	"github.com/uniquepersun/blob/internal/render"
 )
 
 const (

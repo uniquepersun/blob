@@ -3,7 +3,7 @@ package hook
 import (
 	"testing"
 
-	"github.com/abhay/blob/internal/ipc"
+	"github.com/uniquepersun/blob/internal/ipc"
 )
 
 func TestTranslate(t *testing.T) {

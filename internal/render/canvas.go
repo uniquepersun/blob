@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/abhay/blob/internal/game"
+	"github.com/uniquepersun/blob/internal/game"
 )
 
 type RGB = game.RGB

@@ -40,7 +40,7 @@ import (
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/math/fixed"
 
-	"github.com/abhay/blob/internal/ipc"
+	"github.com/uniquepersun/blob/internal/ipc"
 )
 
 const cellW, cellH = 7, 14

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abhay/blob/internal/ipc"
+	"github.com/uniquepersun/blob/internal/ipc"
 )
 
 func TestOSCFilterDropsTitlesAcrossReads(t *testing.T) {
