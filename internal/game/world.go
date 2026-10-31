@@ -113,6 +113,7 @@ type Particle struct {
 
 // Popup is a floating word ("boop!", "pop!").
 type Popup struct {
+	HitWord       bool // a random "boop"/"oof" on a hit (can be turned off)
 	Text          string
 	Pos           Vec
 	Color         RGB
@@ -150,6 +151,22 @@ func (w *World) DrainSounds() []Sound {
 	return s
 }
 
+// Tuning scales the hand-tuned numbers. Every field is a multiplier and
+// 1.0 is the default feel (see the gentleness notes in CLAUDE.md).
+type Tuning struct {
+	PlayerSpeed float64 // player move speed
+	BotSpeed    float64 // bot move speed
+	BotFire     float64 // bot cooldown: >1 shoots less often
+	BotWobble   float64 // bot aim wobble: >1 misses more
+	PickupRate  float64 // pickup spawns: >1 spawns more often
+	BotShy      float64 // how much bots avoid picking you: >1 leaves you alone more
+}
+
+// DefaultTuning is the feel the gentleness tuning was measured with.
+func DefaultTuning() Tuning {
+	return Tuning{PlayerSpeed: 1, BotSpeed: 1, BotFire: 1, BotWobble: 1, PickupRate: 1, BotShy: 1}
+}
+
 // World holds the whole simulation. It has no idea it is being drawn in a
 // terminal, which keeps it testable and reusable for an SSH server later.
 type World struct {
@@ -171,6 +188,8 @@ type World struct {
 	// drains it each frame; the sim never plays audio itself.
 	Sounds []Sound
 
+	Tune Tuning // player-adjustable knobs (esc menu); 1.0 = the tuned default
+
 	rng         *rand.Rand
 	pickupTimer float64
 	scaleSpring harmonica.Spring
@@ -181,6 +200,7 @@ type World struct {
 func NewWorld(w, h float64, bots int, seed int64) *World {
 	wd := &World{
 		W: w, H: h,
+		Tune:        DefaultTuning(),
 		rng:         rand.New(rand.NewSource(seed)),
 		pickupTimer: 2.0,
 		// Underdamped springs give the overshoot that reads as "jelly".
@@ -272,9 +292,9 @@ func (w *World) Step() {
 }
 
 func (w *World) stepBlob(b *Blob, dt float64) {
-	speed := 36.0
+	speed := 36.0 * w.Tune.PlayerSpeed
 	if !b.IsPlayer {
-		speed = 28.0
+		speed = 28.0 * w.Tune.BotSpeed
 	}
 	in := b.In
 	move := in.Move
@@ -410,6 +430,7 @@ func (w *World) hit(b *Blob, owner, dmg int, dir Vec, c RGB) {
 	}
 	if w.rng.Float64() < 0.45 {
 		w.popup(hitWords[w.rng.Intn(len(hitWords))], b.Pos.Add(V(0, -BlobRadius-2)), ColCream)
+		w.Popups[len(w.Popups)-1].HitWord = true
 	}
 	if b.HP <= 0 {
 		w.pop(b, owner)

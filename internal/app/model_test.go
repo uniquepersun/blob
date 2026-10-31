@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/uniquepersun/blob/internal/ipc"
+	"github.com/uniquepersun/blob/internal/prefs"
 	"github.com/uniquepersun/blob/internal/render"
 )
 
@@ -225,5 +226,37 @@ func TestMenuGameSizeResizesPanel(t *testing.T) {
 	press(m, "right", "right")
 	if m.cfg.GamePct != 70 || m.lay.gameH <= before {
 		t.Fatalf("pct=%d gameH %d -> %d", m.cfg.GamePct, before, m.lay.gameH)
+	}
+}
+
+func TestSettingsReachTheSimAndSurviveNewMatch(t *testing.T) {
+	m := standalone(t)
+	m.openMenu()
+	sel := func(r menuRow) {
+		for m.menuRows()[m.menuSel] != r {
+			press(m, "down")
+		}
+	}
+	sel(rowSkill)
+	press(m, "right") // normal -> spicy
+	sel(rowSpeed)
+	press(m, "left") // normal -> slow
+	sel(rowWords)
+	press(m, "enter")
+	if m.world.Tune.BotFire >= 1 || m.world.Tune.PlayerSpeed >= 1 || !m.ui().NoWords {
+		t.Fatalf("tune=%+v noWords=%v", m.world.Tune, m.set.NoWords)
+	}
+	m.newMatch()
+	if m.world.Tune.BotFire >= 1 {
+		t.Fatal("a new match dropped the settings")
+	}
+	if p := prefs.Load(); p.Skill != "spicy" || p.Speed != "slow" || !p.NoWords {
+		t.Fatalf("not saved: %+v", p)
+	}
+	m.menuSel = 0
+	sel(rowSpeed)
+	press(m, "right", "right", "right") // slow -> normal -> fast, and stops there
+	if m.set.Speed != "fast" || m.world.Tune.PlayerSpeed <= 1 {
+		t.Fatalf("speed %q tune %v", m.set.Speed, m.world.Tune.PlayerSpeed)
 	}
 }

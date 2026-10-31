@@ -90,7 +90,7 @@ func (w *World) fire(b *Blob) {
 	}
 
 	if !b.IsPlayer {
-		b.Cooldown *= botFireSlowdown
+		b.Cooldown *= botFireSlowdown * w.Tune.BotFire
 	} else {
 		w.sound(SndShoot)
 	}
@@ -204,7 +204,7 @@ func (w *World) explode(bm *Bomb) {
 func (w *World) stepPickups(dt float64) {
 	w.pickupTimer -= dt
 	if w.pickupTimer <= 0 {
-		w.pickupTimer = 3.5 + w.rng.Float64()*3
+		w.pickupTimer = (3.5 + w.rng.Float64()*3) / w.Tune.PickupRate
 		if len(w.Pickups) < maxPickups {
 			w.spawnPickup()
 		}

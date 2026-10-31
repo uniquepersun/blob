@@ -213,9 +213,19 @@ internal/ipc     Unix socket, one JSON line per event; kinds: working,
 ### Esc menu (internal/app/menu.go)
 - Abhay: "if I click esc, it should open the menu for the complete game".
   esc opens it (p is the plain pause now). Rows: resume, blob look, sound,
-  shot sound (plays a preview), bots 1-6 (starts a new match), game size
-  40-80% and game panel below/right (wrapper only), controls (help list),
-  new match, hide game / quit blob. ↑/↓ select, ←/→ change, enter, esc.
+  volume 25-100% (75 = old level), shot sound (plays a preview), bots
+  random/1-8 (starts a new match), bot skill gentle/normal/spicy, your
+  speed slow/normal/fast (0.8/1/1.25), pickups fewer/normal/more
+  (0.6/1/1.6), screen shake, hit words, game size 40-80% and game panel
+  below/right (wrapper only), controls, new match, hide game / quit blob.
+  ↑/↓ select, ←/→ change, enter, esc. Scrolls (▲/▼) in short panes.
+- Gameplay knobs are game.Tuning multipliers (1.0 = the measured
+  default); app.tuning() maps menu levels to them and every new match
+  reapplies them. Bot skill also scales BotShy (the 2.2× "player is
+  farther" factor). Measured idle survival, 5 bots: gentle 28s, normal
+  24s, spicy 17s (idle players mostly die to crossfire, so an active
+  player feels the gap more). Hit words are Popup.HitWord, hidden in
+  render; shake off is render-only too.
 - Every change applies live and saves to prefs (style, muted, shot, bots,
   game_pct, side). main.go: prefs first, BLOB_* env overrides one run.
 - Rendered by render.drawMenu (UI.Menu), dims the arena like a pause.

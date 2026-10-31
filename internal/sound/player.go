@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	master    = 0.45 // quiet: this plays next to someone's work
-	maxVoices = 12
+	defaultMaster = 0.45 // "75%": quiet, this plays next to someone's work
+	maxVoices     = 12
 )
 
 type voice struct {
@@ -31,7 +31,8 @@ type Player struct {
 	last   [numIDs]time.Time
 	muted  bool
 	ready  bool
-	shot   string // current shot sound name
+	shot   string  // current shot sound name
+	master float64 // overall volume
 
 	ctx      *oto.Context
 	out      *oto.Player
@@ -65,6 +66,16 @@ func (p *Player) SetShot(shot string) {
 	p.mu.Unlock()
 }
 
+// SetVolume sets the overall volume in percent; 75 is the default.
+func (p *Player) SetVolume(pct int) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.master = defaultMaster * float64(pct) / 75
+	p.mu.Unlock()
+}
+
 // Shot is the shot sound in use ("" with no player).
 func (p *Player) Shot() string {
 	if p == nil {
@@ -76,7 +87,7 @@ func (p *Player) Shot() string {
 }
 
 func newPlayer(muted bool, shot string) *Player {
-	p := &Player{fx: varied(build(shot)), shot: shot, muted: muted, t0: time.Now()}
+	p := &Player{fx: varied(build(shot)), shot: shot, muted: muted, master: defaultMaster, t0: time.Now()}
 	if f := os.Getenv("BLOB_SOUND_LOG"); f != "" {
 		p.log, _ = os.Create(f)
 	}
@@ -210,7 +221,7 @@ func (p *Player) Read(buf []byte) (int, error) {
 			}
 		}
 		// tanh keeps stacked booms from clipping harshly.
-		s := float32(math.Tanh(float64(v) * master))
+		s := float32(math.Tanh(float64(v) * p.master))
 		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(s))
 	}
 	live := p.voices[:0]

@@ -66,7 +66,7 @@ agent finishes: confetti, then the game tucks itself away.
 | arrow keys | aim and fire in that direction |
 | `space` | fire |
 | `e` / `b` / right click | throw a bomb |
-| `esc` | the menu: blob look, sound, shot sound, bots, game size and layout, controls, new match |
+| `esc` | the menu: blob look, sound, volume, shot sound, bots, bot skill, your speed, pickups, screen shake, hit words, game size and layout, controls, new match |
 | `p` | pause |
 | `m` | sound on / off (remembered) |
 | `c` | pick the blob look: classic or simple (remembered) |

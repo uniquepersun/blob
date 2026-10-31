@@ -61,6 +61,7 @@ type Config struct {
 	Style  string        // chosen blob look; "" = random each run
 	Shot   string        // chosen shot sound; "" = random tick/puff
 	Tipped bool          // already saw the "esc opens the menu" welcome
+	Saved  prefs.Prefs   // the rest of the menu settings (speed, skill, ...)
 }
 
 // Model is the Bubble Tea model. It is used through a pointer so the
@@ -103,6 +104,7 @@ type Model struct {
 	picking    bool         // choosing a blob style (c)
 	pickPrev   render.Style // esc in the picker goes back to this
 	tipUntil   float64      // the one-time welcome banner shows until then
+	set        prefs.Prefs  // live menu settings: speed, skill, pickups, volume, shake, words
 	menu       bool         // the esc menu is open
 	menuSel    int
 	menuHelp   bool // the menu is showing the controls list
@@ -134,6 +136,9 @@ func New(cfg Config) *Model {
 		promptRe:  promptRegexp(),
 	}
 	m.last = m.start
+	m.set = cfg.Saved
+	m.world.Tune = m.tuning()
+	cfg.Sound.SetVolume(m.volume())
 	if st, ok := render.ParseStyle(cfg.Style); ok {
 		m.style = st
 	} else {
@@ -779,7 +784,8 @@ var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "
 
 func (m *Model) ui() render.UI {
 	name := firstNonEmpty(m.agentName, "agent")
-	ui := render.UI{Time: m.now, Style: m.style, Dim: m.wrap != nil && !m.focusGame && m.pause == notPaused && m.hideAt == 0}
+	ui := render.UI{Time: m.now, Style: m.style, Dim: m.wrap != nil && !m.focusGame && m.pause == notPaused && m.hideAt == 0,
+		NoShake: m.set.NoShake, NoWords: m.set.NoWords}
 	if m.picking && m.pause == notPaused {
 		ui.Picker, ui.PauseAccent = true, game.ColMustard
 		ui.PauseTitle = "pick your blobs"

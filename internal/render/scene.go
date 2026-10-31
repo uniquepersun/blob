@@ -80,6 +80,9 @@ type UI struct {
 
 	Menu *Menu // the esc menu; drawn instead of any pause card
 
+	NoShake bool // screen shake off (esc menu)
+	NoWords bool // hide the "boop"/"oof" hit words (esc menu)
+
 	Paused      bool
 	PauseAccent RGB
 	PauseTitle  string
@@ -174,7 +177,7 @@ func (r *Renderer) Render(w *game.World, ui UI, cols, rows int) []string {
 	c.CopyFrom(r.bg)
 
 	r.off = game.Vec{}
-	if w.Shake > 0 && !ui.Paused {
+	if w.Shake > 0 && !ui.Paused && !ui.NoShake {
 		amp := w.Shake * 4
 		r.off = game.V((r.rng.Float64()-0.5)*amp, (r.rng.Float64()-0.5)*amp)
 	}
@@ -233,6 +236,9 @@ func (r *Renderer) Render(w *game.World, ui UI, cols, rows int) []string {
 		r.drawMenu(ov, ui.Menu, ui.Time)
 	} else if !ui.Paused {
 		for _, p := range w.Popups {
+			if p.HitWord && ui.NoWords {
+				continue
+			}
 			a := p.Life / p.MaxLife
 			x, y := r.px(p.Pos)
 			txt := p.Text
@@ -658,7 +664,14 @@ func (r *Renderer) drawMenu(ov *Overlay, m *Menu, t float64) {
 	}
 	inner = max(inner, Width(m.Title)+4, Width(m.Hint)+4)
 	inner = min(inner, ov.Cols-4)
-	h := len(rows) + 6
+	// Too many rows for the pane: show a window around the selection with
+	// ▲/▼ marks on the title and hint lines.
+	first, visible := 0, len(rows)
+	if maxRows := ov.Rows - 6; visible > maxRows && maxRows > 0 {
+		visible = maxRows
+		first = min(max(0, m.Sel-visible/2), len(rows)-visible)
+	}
+	h := visible + 6
 	x0 := (ov.Cols - inner - 2) / 2
 	y0 := max(0, (ov.Rows-h)/2)
 	bg := cardBg
@@ -671,8 +684,15 @@ func (r *Renderer) drawMenu(ov *Overlay, m *Menu, t float64) {
 		ov.Text(x0+inner+1, y0+i, "│", border, &bg, false)
 	}
 	ov.Text(x0+1+(inner-Width(m.Title))/2, y0+1, m.Title, accent, &bg, true)
-	for i, l := range rows {
-		y := y0 + 3 + i
+	if first > 0 {
+		ov.Text(x0+inner-1, y0+2, "▲", hudDim, &bg, false)
+	}
+	if first+visible < len(rows) {
+		ov.Text(x0+inner-1, y0+h-3, "▼", hudDim, &bg, false)
+	}
+	for i := first; i < first+visible; i++ {
+		l := rows[i]
+		y := y0 + 3 + i - first
 		if m.Help != nil {
 			ov.Text(x0+3, y, Trunc(l, inner-4), hudFg, &bg, false)
 			continue

@@ -22,8 +22,14 @@ const (
 	rowResume menuRow = iota
 	rowLook
 	rowSound
+	rowVolume
 	rowShot
 	rowBots
+	rowSkill
+	rowSpeed
+	rowPickups
+	rowShake
+	rowWords
 	rowSize   // wrapper only
 	rowLayout // wrapper only
 	rowControls
@@ -57,7 +63,8 @@ func randomOr(choice, actual string) string {
 }
 
 func (m *Model) menuRows() []menuRow {
-	rows := []menuRow{rowResume, rowLook, rowSound, rowShot, rowBots}
+	rows := []menuRow{rowResume, rowLook, rowSound, rowVolume, rowShot,
+		rowBots, rowSkill, rowSpeed, rowPickups, rowShake, rowWords}
 	if m.wrap != nil {
 		rows = append(rows, rowSize, rowLayout)
 	}
@@ -118,8 +125,20 @@ func (m *Model) menuItem(r menuRow) render.MenuItem {
 		return render.MenuItem{Label: "blob look", Value: randomOr(m.cfg.Style, m.style.String())}
 	case rowSound:
 		return render.MenuItem{Label: "sound", Value: onOff(m.cfg.Sound != nil && !m.cfg.Sound.Muted())}
+	case rowVolume:
+		return render.MenuItem{Label: "volume", Value: fmt.Sprintf("%d%%", m.volume()), Off: m.cfg.Sound.Muted()}
 	case rowShot:
 		return render.MenuItem{Label: "shot sound", Value: randomOr(m.cfg.Shot, m.cfg.Sound.Shot())}
+	case rowSkill:
+		return render.MenuItem{Label: "bot skill", Value: orNormal(m.set.Skill)}
+	case rowSpeed:
+		return render.MenuItem{Label: "your speed", Value: orNormal(m.set.Speed)}
+	case rowPickups:
+		return render.MenuItem{Label: "pickups", Value: orNormal(m.set.Pickups)}
+	case rowShake:
+		return render.MenuItem{Label: "screen shake", Value: onOff(!m.set.NoShake)}
+	case rowWords:
+		return render.MenuItem{Label: "hit words", Value: onOff(!m.set.NoWords)}
 	case rowBots:
 		v := fmt.Sprint(m.cfg.Bots)
 		if m.cfg.Bots == 0 {
@@ -193,6 +212,41 @@ func (m *Model) menuChange(r menuRow, dir int) {
 		m.cfg.Sound.Play(sound.Shoot) // hear it right away
 		shot := m.cfg.Shot
 		prefs.Update(func(p *prefs.Prefs) { p.Shot = shot })
+	case rowVolume:
+		i := 0
+		for j, v := range volumes {
+			if v == m.volume() {
+				i = j
+			}
+		}
+		v := volumes[min(len(volumes)-1, max(0, i+dir))]
+		m.set.Volume = v
+		m.cfg.Sound.SetVolume(v)
+		m.cfg.Sound.Play(sound.Pickup) // hear the new level
+		prefs.Update(func(p *prefs.Prefs) { p.Volume = v })
+	case rowSkill:
+		m.set.Skill = stepLevel(skills, m.set.Skill, dir)
+		m.world.Tune = m.tuning()
+		v := m.set.Skill
+		prefs.Update(func(p *prefs.Prefs) { p.Skill = v })
+	case rowSpeed:
+		m.set.Speed = stepLevel(speeds, m.set.Speed, dir)
+		m.world.Tune = m.tuning()
+		v := m.set.Speed
+		prefs.Update(func(p *prefs.Prefs) { p.Speed = v })
+	case rowPickups:
+		m.set.Pickups = stepLevel(pickupRates, m.set.Pickups, dir)
+		m.world.Tune = m.tuning()
+		v := m.set.Pickups
+		prefs.Update(func(p *prefs.Prefs) { p.Pickups = v })
+	case rowShake:
+		m.set.NoShake = !m.set.NoShake
+		v := m.set.NoShake
+		prefs.Update(func(p *prefs.Prefs) { p.NoShake = v })
+	case rowWords:
+		m.set.NoWords = !m.set.NoWords
+		v := m.set.NoWords
+		prefs.Update(func(p *prefs.Prefs) { p.NoWords = v })
 	case rowBots: // random, 1..8 (0 = random)
 		b := (m.cfg.Bots + maxBots + 1 + dir) % (maxBots + 1)
 		m.cfg.Bots = b
@@ -239,7 +293,72 @@ func (m *Model) menuSelect(r menuRow) tea.Cmd {
 func (m *Model) newMatch() {
 	w, h := m.world.W, m.world.H
 	m.world = game.NewWorld(w, h, matchBots(m.cfg.Bots), time.Now().UnixNano())
+	m.world.Tune = m.tuning()
 	m.in.ClearKeys()
+}
+
+// The three-step settings. "" is saved for normal so the file stays small.
+var (
+	speeds      = []string{"slow", "normal", "fast"}
+	skills      = []string{"gentle", "normal", "spicy"}
+	pickupRates = []string{"fewer", "normal", "more"}
+	volumes     = []int{25, 50, 75, 100}
+)
+
+func orNormal(s string) string {
+	if s == "" {
+		return "normal"
+	}
+	return s
+}
+
+// stepLevel moves one step along levels without wrapping (slow < normal <
+// fast reads as a slider), returning "" for normal.
+func stepLevel(levels []string, cur string, dir int) string {
+	i := 1
+	for j, l := range levels {
+		if l == orNormal(cur) {
+			i = j
+		}
+	}
+	next := levels[min(len(levels)-1, max(0, i+dir))]
+	if next == "normal" {
+		return ""
+	}
+	return next
+}
+
+func (m *Model) volume() int {
+	if m.set.Volume == 0 {
+		return 75
+	}
+	return m.set.Volume
+}
+
+// tuning turns the menu levels into the sim's multipliers. Bot levels were
+// measured (idle player, 5 bots, mean time to pop): gentle 28s, normal 24s,
+// spicy 17s.
+func (m *Model) tuning() game.Tuning {
+	t := game.DefaultTuning()
+	switch m.set.Speed {
+	case "slow":
+		t.PlayerSpeed = 0.8
+	case "fast":
+		t.PlayerSpeed = 1.25
+	}
+	switch m.set.Skill {
+	case "gentle":
+		t.BotSpeed, t.BotFire, t.BotWobble, t.BotShy = 0.85, 1.8, 1.6, 3
+	case "spicy":
+		t.BotSpeed, t.BotFire, t.BotWobble, t.BotShy = 1.12, 0.7, 0.7, 0.5
+	}
+	switch m.set.Pickups {
+	case "fewer":
+		t.PickupRate = 0.6
+	case "more":
+		t.PickupRate = 1.6
+	}
+	return t
 }
 
 func (m *Model) toggleSound() {

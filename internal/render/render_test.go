@@ -23,10 +23,18 @@ func TestFramesAreExactlyThePaneSize(t *testing.T) {
 		for i := 0; i < 120; i++ {
 			w.Step()
 		}
+		menu := &Menu{Title: "blob", Hint: "↑/↓ choose · ←/→ change · enter select · esc back"}
+		for i := 0; i < 16; i++ { // more rows than small panes hold: must scroll
+			menu.Items = append(menu.Items, MenuItem{Label: "setting", Value: "random (classic)"})
+		}
+		menu.Sel = 12
 		for _, paused := range []bool{false, true} {
 			ui := UI{Time: 1, Paused: paused, PauseTitle: "◆ claude needs you", PauseBody: long,
 				PauseHint: "answer it · the game waits for you", PauseAccent: game.ColCoral,
 				StatusIcon: "⠋", StatusText: "claude working", Hints: strings.Repeat("hint ", 50)}
+			if paused {
+				ui.Menu = menu
+			}
 			lines := r.Render(w, ui, cols, rows)
 			if len(lines) != rows {
 				t.Fatalf("%dx%d paused=%v: %d lines", cols, rows, paused, len(lines))

@@ -18,6 +18,13 @@ type Prefs struct {
 	GamePct int    `json:"game_pct,omitempty"` // wrapper panel height; 0 = default
 	Side    bool   `json:"side,omitempty"`     // wrapper: game on the right
 	Tipped  bool   `json:"tipped,omitempty"`   // saw the "esc opens the menu" welcome
+
+	Speed   string `json:"speed,omitempty"`    // player speed: slow/normal/fast; "" = normal
+	Skill   string `json:"skill,omitempty"`    // bots: gentle/normal/spicy; "" = normal
+	Pickups string `json:"pickups,omitempty"`  // fewer/normal/more; "" = normal
+	Volume  int    `json:"volume,omitempty"`   // percent; 0 = 75
+	NoShake bool   `json:"no_shake,omitempty"` // screen shake off
+	NoWords bool   `json:"no_words,omitempty"` // hit words off
 }
 
 func path() string {

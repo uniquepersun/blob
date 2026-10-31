@@ -108,6 +108,7 @@ func play(cfg app.Config) int {
 	cfg.Style = saved.Style
 	cfg.Bots = saved.Bots
 	cfg.Tipped = saved.Tipped
+	cfg.Saved = saved
 	cfg.Shot = firstSet(os.Getenv("BLOB_SHOT"), saved.Shot)
 	cfg.GamePct = saved.GamePct
 	if pct, err := strconv.Atoi(os.Getenv("BLOB_GAME_PCT")); err == nil {

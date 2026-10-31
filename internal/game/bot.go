@@ -91,6 +91,7 @@ func (bb *botBrain) think(w *World, me *Blob, dt float64) {
 		if tgt.IsPlayer {
 			wob = 0.42 // bots are worse shots against you
 		}
+		wob *= w.Tune.BotWobble
 		bb.aimWobble = clamp(bb.aimWobble+bb.wobbleVel, -wob, wob)
 		lead := tgt.Vel.Mul(dist / 70)
 		aim := tgt.Pos.Add(lead).Sub(me.Pos).Norm().Rotate(bb.aimWobble)
@@ -154,7 +155,7 @@ func (w *World) pickTarget(me *Blob) *Blob {
 		}
 		d := b.Pos.Dist(me.Pos) * (1 + 0.6*float64(chased[b.ID]))
 		if b.IsPlayer {
-			d *= 2.2
+			d *= 2.2 * w.Tune.BotShy
 		}
 		if d < bd {
 			best, bd = b, d
