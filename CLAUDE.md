@@ -292,7 +292,18 @@ internal/ipc     Unix socket, one JSON line per event; kinds: working,
 - GitHub repo is `uniquepersun/blob` (renamed from Side-game on Oct 31);
   module path `github.com/uniquepersun/blob`. Abhay edits the repo on
   GitHub too (e.g. .github/FUNDING.yml): always fetch/pull before pushing.
-- Plan: GitHub Releases + Homebrew (goreleaser, tap repo). Not set up yet.
+- GoReleaser (.goreleaser.yaml) + .github/workflows/release.yml: a `v*`
+  tag builds darwin/linux × amd64/arm64 (CGO_ENABLED=0), publishes the
+  GitHub Release, and commits the Homebrew cask to Casks/blob.rb on main
+  of this same repo (Abhay asked for no separate tap repo; that also means
+  no extra token, GITHUB_TOKEN suffices). Install:
+  `brew tap uniquepersun/blob https://github.com/uniquepersun/blob` then
+  `brew install uniquepersun/blob/blob`. Casks replaced formulas in
+  GoReleaser 2.10+; the binary isn't notarized, so the cask's
+  postflight_steps clears com.apple.quarantine on macOS.
+- Each release pushes a bot commit to main: pull before working.
+- version is `var version = "dev"` in main.go, set by ldflags.
+- License: MIT (abhay tomar, 2026).
 
 ### Gameplay numbers
 Arena = pane cols × (rows−2)×2 pixels (top row HUD, bottom row hints).

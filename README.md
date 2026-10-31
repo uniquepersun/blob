@@ -17,23 +17,34 @@ dropped straight back into the match.
 └───────────────────────────────┴───────────────────────────────────┘
 ```
 
-## Setup
+## Install
 
-Needs Go 1.24+.
-
-1. **Delete the `replace (...)` block at the bottom of `go.mod`.** It only
-   exists because the sandbox this was scaffolded in couldn't reach
-   `charm.land` or `golang.org`.
-2. Build and install:
+**Homebrew** (macOS and Linux):
 
 ```sh
-go mod tidy
-go install ./cmd/blob          # puts `blob` in $(go env GOPATH)/bin
-blob install claude            # adds hooks to ~/.claude/settings.json (backup first)
+brew tap uniquepersun/blob https://github.com/uniquepersun/blob
+brew install uniquepersun/blob/blob
 ```
 
-Optional: on Go 1.26+, `go get charm.land/bubbletea/v2@latest` moves you to
-Bubble Tea 2.1. The API used here is the same.
+**Prebuilt binaries**: grab the archive for your OS from
+[Releases](https://github.com/uniquepersun/blob/releases), unpack, and put
+`blob` on your PATH.
+
+**From source** (Go 1.25+):
+
+```sh
+go install github.com/uniquepersun/blob/cmd/blob@latest
+```
+
+Then add the agent hooks (backs up your config first):
+
+```sh
+blob install claude            # or codex, gemini, agy
+```
+
+Hooks store the path of the `blob` binary that installed them, so re-run
+`blob install <agent>` if you switch between the brew and `go install`
+copies.
 
 ## Run it
 
@@ -138,6 +149,18 @@ own socket through `BLOB_SOCKET`, and draws its screen with
 `charmbracelet/x/vt`. It also watches the bottom of the agent's screen for
 approval prompts ("Do you want to proceed?", "(y/n)", …) as a fallback for
 agents without a permission hook. Tune that with `BLOB_PROMPT_REGEX`.
+
+## Releasing
+
+Push a version tag and GitHub Actions does the rest (GoReleaser builds
+macOS and Linux binaries, publishes the release, and updates
+`Casks/blob.rb` on main):
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+Dry run locally: `goreleaser release --snapshot --clean`.
 
 ## The 30-second demo
 

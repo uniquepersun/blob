@@ -1,0 +1,67 @@
+# Releases: push a tag like v0.1.0 and .github/workflows/release.yml runs
+# this. Test locally with: goreleaser release --snapshot --clean
+version: 2
+project_name: blob
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: blob
+    main: ./cmd/blob
+    binary: blob
+    # Pure Go everywhere (oto 3.5 needs no cgo for audio), so every
+    # platform cross-compiles from one runner.
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{ .Version }}"]
+
+archives:
+  - id: blob
+    ids: [blob]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [README.md, LICENSE*]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:"]
+
+release:
+  github:
+    owner: uniquepersun
+    name: blob
+
+homebrew_casks:
+  - name: blob
+    ids: [blob]
+    binaries: [blob]
+    # The tap is this repo itself (Casks/blob.rb on main), so the workflow's
+    # own GITHUB_TOKEN can write it and no extra token is needed. Users:
+    #   brew tap uniquepersun/blob https://github.com/uniquepersun/blob
+    #   brew install uniquepersun/blob/blob
+    repository:
+      owner: uniquepersun
+      name: blob
+      branch: main
+    homepage: https://github.com/uniquepersun/blob
+    description: A cozy blob shooter that lives next to your coding agent
+    commit_author:
+      name: uniquepersun
+      email: abhay.i0am@gmail.com
+    # Not signed or notarized (Apple's fee), so clear the quarantine bit or
+    # macOS says the binary "is damaged and can't be opened".
+    hooks:
+      post:
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/blob"]
+          end

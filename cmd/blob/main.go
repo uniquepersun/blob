@@ -29,7 +29,8 @@ import (
 	"github.com/uniquepersun/blob/internal/sound"
 )
 
-const version = "0.1.0"
+// version is set by the release build (-ldflags "-X main.version=..."); "dev" otherwise.
+var version = "dev"
 
 func main() {
 	args := os.Args[1:]
