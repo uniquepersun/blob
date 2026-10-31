@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -30,6 +31,7 @@ const (
 	rowPickups
 	rowShake
 	rowWords
+	rowPixels
 	rowSize   // wrapper only
 	rowLayout // wrapper only
 	rowControls
@@ -64,7 +66,7 @@ func randomOr(choice, actual string) string {
 
 func (m *Model) menuRows() []menuRow {
 	rows := []menuRow{rowResume, rowLook, rowSound, rowVolume, rowShot,
-		rowBots, rowSkill, rowSpeed, rowPickups, rowShake, rowWords}
+		rowBots, rowSkill, rowSpeed, rowPickups, rowShake, rowWords, rowPixels}
 	if m.wrap != nil {
 		rows = append(rows, rowSize, rowLayout)
 	}
@@ -139,6 +141,12 @@ func (m *Model) menuItem(r menuRow) render.MenuItem {
 		return render.MenuItem{Label: "screen shake", Value: onOff(!m.set.NoShake)}
 	case rowWords:
 		return render.MenuItem{Label: "hit words", Value: onOff(!m.set.NoWords)}
+	case rowPixels:
+		v := m.set.Pixels
+		if v == "" {
+			v = "auto (" + map[bool]string{true: "blocky", false: "fine"}[m.blocky()] + ")"
+		}
+		return render.MenuItem{Label: "pixels", Value: v}
 	case rowBots:
 		v := fmt.Sprint(m.cfg.Bots)
 		if m.cfg.Bots == 0 {
@@ -247,6 +255,10 @@ func (m *Model) menuChange(r menuRow, dir int) {
 		m.set.NoWords = !m.set.NoWords
 		v := m.set.NoWords
 		prefs.Update(func(p *prefs.Prefs) { p.NoWords = v })
+	case rowPixels:
+		m.set.Pixels = cycle([]string{"", "fine", "blocky"}, m.set.Pixels, dir)
+		v := m.set.Pixels
+		prefs.Update(func(p *prefs.Prefs) { p.Pixels = v })
 	case rowBots: // random, 1..8 (0 = random)
 		b := (m.cfg.Bots + maxBots + 1 + dir) % (maxBots + 1)
 		m.cfg.Bots = b
@@ -326,6 +338,18 @@ func stepLevel(levels []string, cur string, dir int) string {
 		return ""
 	}
 	return next
+}
+
+// blocky reports whether to draw one color per cell. Auto picks it for
+// macOS Terminal, which draws the ▀ half-block with a gap (striped blobs).
+func (m *Model) blocky() bool {
+	switch m.set.Pixels {
+	case "fine":
+		return false
+	case "blocky":
+		return true
+	}
+	return os.Getenv("TERM_PROGRAM") == "Apple_Terminal"
 }
 
 func (m *Model) volume() int {

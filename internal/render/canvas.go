@@ -113,7 +113,60 @@ func (o *Overlay) Fill(x, y, w, h int, bg RGB) {
 
 // Lines turns pixels + overlay into exactly Rows strings of exactly Cols
 // visible columns each, emitting SGR codes only when colors change.
-func Lines(c *Canvas, o *Overlay) []string {
+func Lines(c *Canvas, o *Overlay) []string { return lines(c, o, nil) }
+
+// LinesBlocky is Lines without the ▀ glyph: every cell is one colored
+// space, which every terminal fills edge to edge. macOS Terminal draws ▀
+// from the font with a gap under it, so half-block art there comes out
+// striped. Each cell keeps one of its two pixels (see pickPixel), at half
+// the vertical detail.
+func LinesBlocky(c *Canvas, o *Overlay, floor *Canvas) []string { return lines(c, o, floor) }
+
+// pickPixel chooses which of a cell's two pixels to show in blocky mode.
+// Something over floor beats floor (outlines, 1px bullets). If both are
+// something (an eye on a body, a highlight), the one that contrasts more
+// with its horizontal neighbours is the detail, so it wins.
+func pickPixel(c, floor *Canvas, x, y int) RGB {
+	top, bot := c.Get(x, y), c.Get(x, y+1)
+	if top == bot {
+		return top
+	}
+	// "On" = something over the floor. A floor-coloured pixel with something
+	// on both sides is a dark detail (classic eyes are nearly floor colour).
+	on := func(yy int) bool {
+		over := func(xx int) bool { return dist2(c.Get(xx, yy), floor.Get(xx, yy)) > 900 }
+		return over(x) || (over(x-1) && over(x+1))
+	}
+	onTop, onBot := on(y), on(y+1)
+	switch {
+	case onTop && !onBot:
+		return top
+	case onBot && !onTop:
+		return bot
+	case !onTop && !onBot:
+		return top
+	}
+	contrast := func(col RGB) int {
+		n := 0
+		for _, dx := range []int{-1, 1} {
+			for _, dy := range []int{0, 1} {
+				n += dist2(col, c.Get(x+dx, y+dy))
+			}
+		}
+		return n
+	}
+	if contrast(bot) > contrast(top) {
+		return bot
+	}
+	return top
+}
+
+func dist2(a, b RGB) int {
+	dr, dg, db := int(a.R)-int(b.R), int(a.G)-int(b.G), int(a.B)-int(b.B)
+	return dr*dr + dg*dg + db*db
+}
+
+func lines(c *Canvas, o *Overlay, floor *Canvas) []string {
 	rows := c.H / 2
 	out := make([]string, rows)
 	var sb strings.Builder
@@ -161,6 +214,10 @@ func Lines(c *Canvas, o *Overlay) []string {
 			if lastBold {
 				sb.WriteString("\x1b[22m")
 				lastBold = false
+			}
+			if floor != nil && top != bot {
+				top = pickPixel(c, floor, x, row*2)
+				bot = top
 			}
 			if top == bot {
 				setBg(top)

@@ -785,7 +785,7 @@ var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "
 func (m *Model) ui() render.UI {
 	name := firstNonEmpty(m.agentName, "agent")
 	ui := render.UI{Time: m.now, Style: m.style, Dim: m.wrap != nil && !m.focusGame && m.pause == notPaused && m.hideAt == 0,
-		NoShake: m.set.NoShake, NoWords: m.set.NoWords}
+		NoShake: m.set.NoShake, NoWords: m.set.NoWords, Blocky: m.blocky()}
 	if m.picking && m.pause == notPaused {
 		ui.Picker, ui.PauseAccent = true, game.ColMustard
 		ui.PauseTitle = "pick your blobs"

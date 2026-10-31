@@ -35,13 +35,19 @@ func TestFramesAreExactlyThePaneSize(t *testing.T) {
 			if paused {
 				ui.Menu = menu
 			}
-			lines := r.Render(w, ui, cols, rows)
-			if len(lines) != rows {
-				t.Fatalf("%dx%d paused=%v: %d lines", cols, rows, paused, len(lines))
-			}
-			for i, l := range lines {
-				if v := visible(l); v != cols {
-					t.Fatalf("%dx%d paused=%v line %d: width %d", cols, rows, paused, i, v)
+			for _, blocky := range []bool{false, true} {
+				ui.Blocky = blocky
+				lines := r.Render(w, ui, cols, rows)
+				if len(lines) != rows {
+					t.Fatalf("%dx%d paused=%v: %d lines", cols, rows, paused, len(lines))
+				}
+				for i, l := range lines {
+					if v := visible(l); v != cols {
+						t.Fatalf("%dx%d paused=%v blocky=%v line %d: width %d", cols, rows, paused, blocky, i, v)
+					}
+					if blocky && strings.Contains(l, "▀") {
+						t.Fatalf("%dx%d blocky line %d uses ▀ (macOS Terminal draws it with a gap)", cols, rows, i)
+					}
 				}
 			}
 		}

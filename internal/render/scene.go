@@ -81,6 +81,7 @@ type UI struct {
 	Menu *Menu // the esc menu; drawn instead of any pause card
 
 	NoShake bool // screen shake off (esc menu)
+	Blocky  bool // one color per cell, no ▀ (macOS Terminal; esc menu "pixels")
 	NoWords bool // hide the "boop"/"oof" hit words (esc menu)
 
 	Paused      bool
@@ -258,7 +259,12 @@ func (r *Renderer) Render(w *game.World, ui UI, cols, rows int) []string {
 		r.drawCard(ov, ui)
 	}
 
-	arena := Lines(c, ov)
+	var arena []string
+	if ui.Blocky {
+		arena = LinesBlocky(c, ov, r.bg)
+	} else {
+		arena = Lines(c, ov)
+	}
 	out := make([]string, 0, rows)
 	out = append(out, r.hud(w, ui, cols))
 	out = append(out, arena...)

@@ -78,7 +78,7 @@ agent finishes: confetti, then the game tucks itself away.
 | arrow keys | aim and fire in that direction |
 | `space` | fire |
 | `e` / `b` / right click | throw a bomb |
-| `esc` | the menu: blob look, sound, volume, shot sound, bots, bot skill, your speed, pickups, screen shake, hit words, game size and layout, controls, new match |
+| `esc` | the menu: blob look, sound, volume, shot sound, bots, bot skill, your speed, pickups, screen shake, hit words, pixels, game size and layout, controls, new match |
 | `p` | pause |
 | `m` | sound on / off (remembered) |
 | `c` | pick the blob look: classic or simple (remembered) |
@@ -117,6 +117,12 @@ guesses "held" from the key-repeat stream, which works but lags a little on
 release; the mouse is fully precise everywhere. Inside tmux, key releases are
 lost, so run `blob claude` directly in the terminal rather than in a tmux pane.
 Use a truecolor terminal (`COLORTERM=truecolor`).
+
+macOS Terminal draws the `▀` half-block character with a gap under it,
+which makes the half-block pixel art look striped. blob notices
+(`TERM_PROGRAM=Apple_Terminal`) and switches to blocky pixels: one solid
+color per cell, half the vertical detail, no stripes. Change it under
+**pixels** in the esc menu (auto / fine / blocky).
 
 ## Agents
 

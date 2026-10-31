@@ -242,6 +242,19 @@ internal/ipc     Unix socket, one JSON line per event; kinds: working,
 - Gentleness with more bots (BLOB_TUNE run): idle player mean time-to-pop
   25.3s with 3 bots, 21.8s with 5, 21.2s with 8. Left untuned.
 
+### macOS Terminal (blocky pixels)
+- Terminal.app draws ▀ from the font with a gap below it, so half-block
+  cells (top≠bottom) render as thin slivers: striped blobs, floating lines
+  (Abhay's screenshot, Oct 31). Cells with top==bottom were already a
+  colored space and render fine.
+- Fix: render.LinesBlocky: every cell is one colored space. pickPixel keeps
+  the pixel that is "over" the floor (vs r.bg; a floor-coloured pixel with
+  something on both sides counts as over: classic eyes are ~floor colour),
+  else the one with more contrast to its horizontal neighbours (eyes,
+  highlights, outlines survive). Auto-on when TERM_PROGRAM=Apple_Terminal;
+  esc menu "pixels" auto/fine/blocky (prefs.Pixels). Display-only: the
+  canvas, sim and mouse mapping are unchanged.
+
 ### Blob look (render.Style)
 - Two looks, player's choice (Abhay prefers classic): `classic` = the
   original shaded blob (drawBlobClassic, with HP pips) and `simple` = flat

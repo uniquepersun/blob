@@ -25,6 +25,7 @@ type Prefs struct {
 	Volume  int    `json:"volume,omitempty"`   // percent; 0 = 75
 	NoShake bool   `json:"no_shake,omitempty"` // screen shake off
 	NoWords bool   `json:"no_words,omitempty"` // hit words off
+	Pixels  string `json:"pixels,omitempty"`   // fine/blocky; "" = auto (blocky in macOS Terminal)
 }
 
 func path() string {
