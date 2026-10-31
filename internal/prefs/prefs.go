@@ -12,11 +12,12 @@ import (
 // Prefs is everything blob remembers.
 type Prefs struct {
 	Muted   bool   `json:"muted"`
-	Style   string `json:"style,omitempty"`    // blob look; "" = never chosen
-	Shot    string `json:"shot,omitempty"`     // shot sound; "" = default
-	Bots    int    `json:"bots,omitempty"`     // 0 = default
+	Style   string `json:"style,omitempty"`    // blob look; "" = random each run
+	Shot    string `json:"shot,omitempty"`     // shot sound; "" = random tick/puff
+	Bots    int    `json:"bots,omitempty"`     // 0 = random 3-8 each match
 	GamePct int    `json:"game_pct,omitempty"` // wrapper panel height; 0 = default
 	Side    bool   `json:"side,omitempty"`     // wrapper: game on the right
+	Tipped  bool   `json:"tipped,omitempty"`   // saw the "esc opens the menu" welcome
 }
 
 func path() string {

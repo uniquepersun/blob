@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -119,18 +120,58 @@ func standalone(t *testing.T) *Model {
 	return m
 }
 
-func TestSpaceDoesNotConfirmFirstRunPicker(t *testing.T) {
+func TestUnchosenLookIsRandomAndThereIsNoBlockingPicker(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	m := New(Config{})
-	m.cols, m.rows = 100, 30
-	m.relayout()
-	press(m, "space")
+	seen := map[render.Style]bool{}
+	for i := 0; i < 40; i++ {
+		m := New(Config{})
+		if m.picking {
+			t.Fatal("first run should not block on a picker")
+		}
+		seen[m.style] = true
+	}
+	if len(seen) != len(render.Styles) {
+		t.Fatalf("40 runs only ever drew %v", seen)
+	}
+}
+
+func TestUnchosenBotsAreThreeToEight(t *testing.T) {
+	counts := map[int]bool{}
+	for i := 0; i < 200; i++ {
+		n := matchBots(0)
+		if n < 3 || n > 8 {
+			t.Fatalf("drew %d bots", n)
+		}
+		counts[n] = true
+	}
+	if len(counts) != 6 || matchBots(5) != 5 {
+		t.Fatalf("draws %v, chosen 5 -> %d", counts, matchBots(5))
+	}
+}
+
+func TestWelcomeShowsOnceWhenGameFirstVisible(t *testing.T) {
+	m := wrapped()
+	t.Setenv("HOME", t.TempDir())
+	m.onTick(m.start.Add(time.Second))
+	if m.tipUntil != 0 {
+		t.Fatal("welcome shown while the game was hidden")
+	}
+	m.showGame(true)
+	m.onTick(m.start.Add(2 * time.Second))
+	if m.tipUntil == 0 || !m.cfg.Tipped || !m.ui().Picker {
+		t.Fatal("welcome should show the first time the game is on screen")
+	}
+}
+
+func TestPickerIgnoresSpace(t *testing.T) {
+	m := standalone(t)
+	press(m, "c", "space")
 	if !m.picking {
 		t.Fatal("space (the fire key) dismissed the picker")
 	}
 	press(m, "right", "enter")
-	if m.picking || m.style != render.StyleSimple {
-		t.Fatalf("picking=%v style=%v", m.picking, m.style)
+	if m.picking || m.style != render.StyleSimple || m.cfg.Style != "simple" {
+		t.Fatalf("picking=%v style=%v choice=%q", m.picking, m.style, m.cfg.Style)
 	}
 }
 
@@ -156,7 +197,10 @@ func TestEscMenuChangesBotsAndCloses(t *testing.T) {
 	for m.menuRows()[m.menuSel] != rowBots {
 		press(m, "down")
 	}
-	press(m, "right")
+	if !strings.HasPrefix(m.menuView().Items[m.menuSel].Value, "random (") {
+		t.Fatalf("unchosen bots should read random, got %q", m.menuView().Items[m.menuSel].Value)
+	}
+	press(m, "right", "right", "right", "right") // random -> 1 -> 2 -> 3 -> 4
 	if m.cfg.Bots != 4 || len(m.world.Blobs) != 5 {
 		t.Fatalf("bots=%d blobs=%d", m.cfg.Bots, len(m.world.Blobs))
 	}

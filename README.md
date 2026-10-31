@@ -86,8 +86,12 @@ and a chime when the agent needs you or finishes while you're playing (with
 it for one run. `blob sounds` plays every effect once; `blob sounds shots`
 compares the shot sounds, and `BLOB_SHOT=pew|plip|puff|tick|off` picks one.
 
-On first launch blob asks which blob look you want (classic, shaded, or
-simple, flat with outlines); `c` or the esc menu changes it any time.
+Until you choose, things are a little random: the blob look (classic,
+shaded, or simple, flat with outlines) each run, the shot sound (tick or
+puff) each run, and each match gets 3 to 8 bots with a fresh cast of names
+and colors. The first time the game opens, a banner says where the
+settings are. `c` or the esc menu picks a look; the menu has "random" for
+each of these if you want the surprise back.
 Everything you set in the esc menu is remembered; the `BLOB_*` environment
 variables override it for a single run. Audio goes through
 [oto](https://github.com/ebitengine/oto) (CoreAudio on macOS, PulseAudio or

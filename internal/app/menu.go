@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"math/rand"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -31,9 +32,29 @@ const (
 )
 
 const (
-	minBots, maxBots = 1, 6
-	minPct, maxPct   = 40, 80
+	maxBots        = 8
+	minPct, maxPct = 40, 80
 )
+
+// cycle steps through choices (wrapping) from the current one.
+func cycle(choices []string, cur string, dir int) string {
+	i := 0
+	for j, c := range choices {
+		if c == cur {
+			i = j
+		}
+	}
+	n := len(choices)
+	return choices[(i+n+dir)%n]
+}
+
+// randomOr shows a choice; unchosen ("") reads "random (what it rolled)".
+func randomOr(choice, actual string) string {
+	if choice == "" {
+		return "random (" + actual + ")"
+	}
+	return choice
+}
 
 func (m *Model) menuRows() []menuRow {
 	rows := []menuRow{rowResume, rowLook, rowSound, rowShot, rowBots}
@@ -94,13 +115,17 @@ func (m *Model) menuItem(r menuRow) render.MenuItem {
 	case rowResume:
 		return render.MenuItem{Label: "resume"}
 	case rowLook:
-		return render.MenuItem{Label: "blob look", Value: m.style.String()}
+		return render.MenuItem{Label: "blob look", Value: randomOr(m.cfg.Style, m.style.String())}
 	case rowSound:
 		return render.MenuItem{Label: "sound", Value: onOff(m.cfg.Sound != nil && !m.cfg.Sound.Muted())}
 	case rowShot:
-		return render.MenuItem{Label: "shot sound", Value: m.shot()}
+		return render.MenuItem{Label: "shot sound", Value: randomOr(m.cfg.Shot, m.cfg.Sound.Shot())}
 	case rowBots:
-		return render.MenuItem{Label: "bots", Value: fmt.Sprint(m.cfg.Bots)}
+		v := fmt.Sprint(m.cfg.Bots)
+		if m.cfg.Bots == 0 {
+			v = randomOr("", fmt.Sprint(len(m.world.Blobs)-1))
+		}
+		return render.MenuItem{Label: "bots", Value: v}
 	case rowSize:
 		return render.MenuItem{Label: "game size", Value: fmt.Sprintf("%d%%", m.cfg.GamePct), Off: m.cfg.Side && m.cols >= minSideCols}
 	case rowLayout:
@@ -120,13 +145,6 @@ func (m *Model) menuItem(r menuRow) render.MenuItem {
 		return render.MenuItem{Label: "quit blob"}
 	}
 	return render.MenuItem{}
-}
-
-func (m *Model) shot() string {
-	if m.cfg.Shot == "" {
-		return sound.DefaultShot
-	}
-	return m.cfg.Shot
 }
 
 func (m *Model) onMenuKey(name string) tea.Cmd {
@@ -158,30 +176,28 @@ func (m *Model) onMenuKey(name string) tea.Cmd {
 func (m *Model) menuChange(r menuRow, dir int) {
 	switch r {
 	case rowLook:
-		n := len(render.Styles)
-		m.setStyle(render.Style((int(m.style) + n + dir) % n))
+		choices := append([]string{""}, render.Styles...)
+		c := cycle(choices, m.cfg.Style, dir)
+		if st, ok := render.ParseStyle(c); ok {
+			m.setStyle(st)
+		} else { // back to random: roll now so you see it change
+			m.cfg.Style = ""
+			m.style = render.Style(rand.Intn(len(render.Styles)))
+			prefs.Update(func(p *prefs.Prefs) { p.Style = "" })
+		}
 	case rowSound:
 		m.toggleSound()
 	case rowShot:
-		i := 0
-		for j, s := range sound.Shots {
-			if s == m.shot() {
-				i = j
-			}
-		}
-		n := len(sound.Shots)
-		m.cfg.Shot = sound.Shots[(i+n+dir)%n]
-		m.cfg.Sound.SetShot(m.cfg.Shot)
+		m.cfg.Shot = cycle(append([]string{""}, sound.Shots...), m.cfg.Shot, dir)
+		m.cfg.Sound.SetShot(sound.PickShot(m.cfg.Shot))
 		m.cfg.Sound.Play(sound.Shoot) // hear it right away
 		shot := m.cfg.Shot
 		prefs.Update(func(p *prefs.Prefs) { p.Shot = shot })
-	case rowBots:
-		b := min(maxBots, max(minBots, m.cfg.Bots+dir))
-		if b != m.cfg.Bots {
-			m.cfg.Bots = b
-			prefs.Update(func(p *prefs.Prefs) { p.Bots = b })
-			m.newMatch()
-		}
+	case rowBots: // random, 1..8 (0 = random)
+		b := (m.cfg.Bots + maxBots + 1 + dir) % (maxBots + 1)
+		m.cfg.Bots = b
+		prefs.Update(func(p *prefs.Prefs) { p.Bots = b })
+		m.newMatch()
 	case rowSize:
 		pct := min(maxPct, max(minPct, m.cfg.GamePct+5*dir))
 		if pct != m.cfg.GamePct {
@@ -218,10 +234,11 @@ func (m *Model) menuSelect(r menuRow) tea.Cmd {
 	return nil
 }
 
-// newMatch starts over with the current bot count, same arena size.
+// newMatch starts over in the same arena with a fresh cast of bots (a new
+// random count too, unless one is chosen).
 func (m *Model) newMatch() {
 	w, h := m.world.W, m.world.H
-	m.world = game.NewWorld(w, h, m.cfg.Bots, time.Now().UnixNano())
+	m.world = game.NewWorld(w, h, matchBots(m.cfg.Bots), time.Now().UnixNano())
 	m.in.ClearKeys()
 }
 

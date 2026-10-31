@@ -27,6 +27,9 @@ var (
 	ColCream      = Hex(0xF3EAD8)
 	ColSage       = Hex(0x7FB7A4)
 	ColGold       = Hex(0xFFD86B)
+	ColLilac      = Hex(0xB79CE8)
+	ColPeach      = Hex(0xF2A65A)
+	ColMint       = Hex(0x9BE3C3)
 
 	confetti = []RGB{ColPeriwinkle, ColMustard, ColCoral, ColTomato, ColCream, ColSage}
 )
@@ -184,8 +187,12 @@ func NewWorld(w, h float64, bots int, seed int64) *World {
 		scaleSpring: harmonica.NewSpring(StepDT, 11.0, 0.28),
 		strSpring:   harmonica.NewSpring(StepDT, 8.0, 0.42),
 	}
-	names := []string{"mochi", "boba", "tofu", "pudding", "dumpling", "taro"}
-	colors := []RGB{ColMustard, ColCoral, ColTomato, ColSage, ColCream}
+	// A different cast every match: names and colors are shuffled. Eight
+	// of each, so up to eight bots never repeat.
+	names := []string{"mochi", "boba", "tofu", "pudding", "dumpling", "taro", "matcha", "sesame"}
+	colors := []RGB{ColMustard, ColCoral, ColTomato, ColSage, ColCream, ColLilac, ColPeach, ColMint}
+	wd.rng.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
+	wd.rng.Shuffle(len(colors), func(i, j int) { colors[i], colors[j] = colors[j], colors[i] })
 
 	player := wd.newBlob(0, "you", ColPeriwinkle)
 	player.IsPlayer = true

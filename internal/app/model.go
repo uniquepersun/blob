@@ -5,6 +5,7 @@ package app
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 	"regexp"
 	"strings"
@@ -56,9 +57,10 @@ type Config struct {
 	Side    bool // wrapper: open the game on the right instead of below
 	GamePct int  // wrapper: game panel height in percent (stacked layout)
 
-	Sound *sound.Player // nil = silent
-	Style string        // saved blob style; "" = first run, show the picker
-	Shot  string        // shot sound name; "" = default
+	Sound  *sound.Player // nil = silent
+	Style  string        // chosen blob look; "" = random each run
+	Shot   string        // chosen shot sound; "" = random tick/puff
+	Tipped bool          // already saw the "esc opens the menu" welcome
 }
 
 // Model is the Bubble Tea model. It is used through a pointer so the
@@ -98,9 +100,9 @@ type Model struct {
 	scanHits   int
 	scanSaw    bool
 	style      render.Style
-	picking    bool         // choosing a blob style (first run, or c)
-	pickFirst  bool         // the first-run picker (enter starts playing)
+	picking    bool         // choosing a blob style (c)
 	pickPrev   render.Style // esc in the picker goes back to this
+	tipUntil   float64      // the one-time welcome banner shows until then
 	menu       bool         // the esc menu is open
 	menuSel    int
 	menuHelp   bool // the menu is showing the controls list
@@ -118,15 +120,12 @@ type layout struct {
 
 // New builds the model.
 func New(cfg Config) *Model {
-	if cfg.Bots == 0 {
-		cfg.Bots = 3
-	}
 	if cfg.GamePct < 20 || cfg.GamePct > 85 {
 		cfg.GamePct = defGamePct
 	}
 	m := &Model{
 		cfg:       cfg,
-		world:     game.NewWorld(80, 40, cfg.Bots, time.Now().UnixNano()),
+		world:     game.NewWorld(80, 40, matchBots(cfg.Bots), time.Now().UnixNano()),
 		rend:      render.NewRenderer(),
 		in:        input.New(),
 		start:     time.Now(),
@@ -138,8 +137,7 @@ func New(cfg Config) *Model {
 	if st, ok := render.ParseStyle(cfg.Style); ok {
 		m.style = st
 	} else {
-		m.picking, m.pickFirst = true, true // shows the first time the game is on screen
-		m.world.Settle()
+		m.style = render.Style(rand.Intn(len(render.Styles))) // unchosen: a surprise each run
 	}
 	if len(cfg.Argv) > 0 {
 		m.wrap = newWrapper(cfg.Agent, cfg.Argv, cfg.Socket)
@@ -156,6 +154,15 @@ func AgentEvent(ev ipc.Event) tea.Msg { return agentMsg(ev) }
 
 // Err is set if the wrapped agent could not start.
 func (m *Model) Err() error { return m.exitErr }
+
+// matchBots is how many bots the next match gets: the chosen number, or a
+// random 3-8 when unchosen (each match draws again).
+func matchBots(chosen int) int {
+	if chosen > 0 {
+		return chosen
+	}
+	return 3 + rand.Intn(6)
+}
 
 func tick() tea.Cmd {
 	return tea.Tick(frameTime, func(t time.Time) tea.Msg { return tickMsg(t) })
@@ -258,6 +265,12 @@ func (m *Model) onTick(t time.Time) {
 	if m.pauseAt > 0 && m.now >= m.pauseAt {
 		m.pauseAt = 0
 		m.setPause(pausedDone)
+	}
+	if !m.cfg.Tipped && m.cols > 0 && (m.wrap == nil || m.open) {
+		// First time the game is on screen: say once where the settings live.
+		m.cfg.Tipped = true
+		m.tipUntil = m.now + 7
+		prefs.Update(func(p *prefs.Prefs) { p.Tipped = true })
 	}
 	if m.hideAt > 0 && m.now >= m.hideAt {
 		m.hideAt = 0
@@ -474,10 +487,12 @@ func (m *Model) onKeyPress(k tea.KeyPressMsg) tea.Cmd {
 
 	switch s {
 	case "esc":
+		m.tipUntil = 0
 		m.openMenu()
 		return nil
 	case "c":
-		m.picking, m.pickFirst, m.pickPrev = true, false, m.style
+		m.tipUntil = 0
+		m.picking, m.pickPrev = true, m.style
 		m.world.Settle()
 		m.in.ClearKeys()
 		return nil
@@ -534,14 +549,12 @@ func (m *Model) onPickerKey(name string) {
 		m.setStyle(m.style)
 		m.cfg.Sound.Play(sound.Toggle)
 	case "esc":
-		if !m.pickFirst {
-			m.picking, m.style = false, m.pickPrev
-		}
+		m.picking, m.style = false, m.pickPrev
 	}
 }
 
 func (m *Model) setStyle(st render.Style) {
-	m.style = st
+	m.style, m.cfg.Style = st, st.String()
 	prefs.Update(func(p *prefs.Prefs) { p.Style = st.String() })
 }
 
@@ -779,10 +792,13 @@ func (m *Model) ui() render.UI {
 			}
 		}
 		ui.PauseBody = strings.Join(opts, "    ")
-		ui.PauseHint = "←/→ choose · enter play · c or esc menu changes it later"
-		if !m.pickFirst {
-			ui.PauseHint = "←/→ choose · enter keep · esc cancel"
-		}
+		ui.PauseHint = "←/→ choose · enter keep · esc cancel"
+	} else if m.now < m.tipUntil && m.pause == notPaused && !m.menu {
+		// The one-time welcome: a banner over the running game, not a stop.
+		ui.Picker, ui.PauseAccent = true, game.ColPeriwinkle
+		ui.PauseTitle = "welcome to blob"
+		ui.PauseBody = "esc opens the menu: blob look, sounds, bots and more"
+		ui.PauseHint = "you'll only see this once"
 	}
 	if m.menu {
 		ui.Menu = m.menuView()

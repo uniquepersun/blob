@@ -131,9 +131,18 @@ const (
 // BLOB_SHOT picks one; `blob sounds shots` plays each as a short volley.
 var Shots = []string{"pew", "plip", "puff", "tick", "off"}
 
-// DefaultShot is used when BLOB_SHOT is unset. Abhay wanted the fire sound
-// "a bit aggressive": pew has a crack, a falling bite and a thump.
-const DefaultShot = "pew"
+// RandomShots are what an unchosen shot sound picks from, once per run
+// (Abhay's call: random between tick and puff). pew is the punchy one,
+// available from the esc menu.
+var RandomShots = []string{"tick", "puff"}
+
+// PickShot resolves a choice: "" means random from RandomShots.
+func PickShot(choice string) string {
+	if choice != "" {
+		return choice
+	}
+	return RandomShots[rand.Intn(len(RandomShots))]
+}
 
 func shotSound(name string) []float32 {
 	switch name {

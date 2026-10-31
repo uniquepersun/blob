@@ -31,6 +31,7 @@ type Player struct {
 	last   [numIDs]time.Time
 	muted  bool
 	ready  bool
+	shot   string // current shot sound name
 
 	ctx      *oto.Context
 	out      *oto.Player
@@ -45,13 +46,11 @@ func (p *Player) logf(format string, a ...any) {
 	}
 }
 
-// New starts audio in the background. If no device turns up, the player
-// stays silent.
+// New starts audio in the background with the given shot sound (a name
+// from Shots; "" picks one of RandomShots). If no device turns up, the
+// player stays silent.
 func New(muted bool, shot string) *Player {
-	if shot == "" {
-		shot = DefaultShot
-	}
-	return newPlayer(muted, shot)
+	return newPlayer(muted, PickShot(shot))
 }
 
 // SetShot swaps the shot sound (for auditioning; oto allows one context
@@ -62,12 +61,22 @@ func (p *Player) SetShot(shot string) {
 	}
 	fx := varied(build(shot))
 	p.mu.Lock()
-	p.fx[Shoot] = fx[Shoot]
+	p.fx[Shoot], p.shot = fx[Shoot], shot
 	p.mu.Unlock()
 }
 
+// Shot is the shot sound in use ("" with no player).
+func (p *Player) Shot() string {
+	if p == nil {
+		return ""
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.shot
+}
+
 func newPlayer(muted bool, shot string) *Player {
-	p := &Player{fx: varied(build(shot)), muted: muted, t0: time.Now()}
+	p := &Player{fx: varied(build(shot)), shot: shot, muted: muted, t0: time.Now()}
 	if f := os.Getenv("BLOB_SOUND_LOG"); f != "" {
 		p.log, _ = os.Create(f)
 	}

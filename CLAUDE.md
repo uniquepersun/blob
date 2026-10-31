@@ -220,15 +220,26 @@ internal/ipc     Unix socket, one JSON line per event; kinds: working,
   game_pct, side). main.go: prefs first, BLOB_* env overrides one run.
 - Rendered by render.drawMenu (UI.Menu), dims the arena like a pause.
 
+### Randomness (Abhay, Oct 31)
+- Unchosen = random: look (each run), shot sound (each run, tick or puff:
+  sound.RandomShots/PickShot), bot count (each match, 3-8: matchBots).
+  Bots also get shuffled names/colors every match (8 of each; lilac,
+  peach, mint added). The menu offers "random" for look, shot and bots,
+  shown as "random (what it rolled)". prefs "" / 0 mean random.
+- No first-run picker any more: the first time the game is on screen a
+  one-time welcome banner ("esc opens the menu ...", 7s, non-blocking)
+  shows and prefs.Tipped is saved.
+- Gentleness with more bots (BLOB_TUNE run): idle player mean time-to-pop
+  25.3s with 3 bots, 21.8s with 5, 21.2s with 8. Left untuned.
+
 ### Blob look (render.Style)
 - Two looks, player's choice (Abhay prefers classic): `classic` = the
   original shaded blob (drawBlobClassic, with HP pips) and `simple` = flat
   body + outline (cream for the player) + tall eyes (drawBlob).
-- First run (no style in prefs): "pick your blobs" card near the top over
-  the undimmed, frozen arena (World.Settle skips the spawn pop-in);
-  ←/→ flips live, enter plays. Space does NOT confirm (it's fire: Abhay
-  missed the first-run picker that way). `c` reopens the picker, esc
-  cancels it. Saved via internal/prefs.
+- `c` opens the "pick your blobs" card near the top over the undimmed,
+  frozen arena (World.Settle skips the spawn pop-in); ←/→ flips live,
+  enter keeps, esc cancels. Space does NOT confirm (it's fire). Saved via
+  internal/prefs.
 - The floor speckles stayed at the quieter (halved) density for both.
 
 ### Sound (internal/sound)
@@ -239,7 +250,7 @@ internal/ipc     Unix socket, one JSON line per event; kinds: working,
   tones with glide + exp decay, filtered noise for booms/whooshes). Tune
   there; `blob sounds` plays each one. Tests check peak, NaN, silent tails.
 - Shots: Abhay disliked the first (square-wave) shot. Candidates in
-  synth.go `shotSound`: pew (default; asked twice for "more aggressive":
+  synth.go `shotSound`: pew (asked twice for "more aggressive":
   near-square 1900→190Hz + octave-down grit + noise crack + kick), plip,
   puff, tick, off; also chosen in the esc menu;
   `blob sounds shots` auditions them, BLOB_SHOT picks. Shoot/Hit/Pop get

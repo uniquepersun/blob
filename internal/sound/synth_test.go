@@ -40,7 +40,7 @@ func checkEffects(t *testing.T, shot string) {
 }
 
 func TestMixerRateLimitsAndDrains(t *testing.T) {
-	p := &Player{fx: varied(build(DefaultShot)), ready: true}
+	p := &Player{fx: varied(build("pew")), ready: true}
 	p.Play(Shoot)
 	p.Play(Shoot) // inside minGap: skipped
 	if len(p.voices) != 1 {
