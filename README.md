@@ -23,6 +23,7 @@ dropped straight back into the match.
 
 ```sh
 brew tap uniquepersun/blob https://github.com/uniquepersun/blob
+brew trust uniquepersun/blob       # Homebrew 7+ asks before using third-party taps
 brew install uniquepersun/blob/blob
 ```
 

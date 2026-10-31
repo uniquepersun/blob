@@ -297,8 +297,10 @@ internal/ipc     Unix socket, one JSON line per event; kinds: working,
   GitHub Release, and commits the Homebrew cask to Casks/blob.rb on main
   of this same repo (Abhay asked for no separate tap repo; that also means
   no extra token, GITHUB_TOKEN suffices). Install:
-  `brew tap uniquepersun/blob https://github.com/uniquepersun/blob` then
-  `brew install uniquepersun/blob/blob`. Casks replaced formulas in
+  `brew tap uniquepersun/blob https://github.com/uniquepersun/blob`,
+  `brew trust uniquepersun/blob` (Homebrew 7 refuses untrusted taps), then
+  `brew install uniquepersun/blob/blob`. v0.1.0 released Oct 31 2026;
+  archive checksums verified against checksums.txt and the cask. Casks replaced formulas in
   GoReleaser 2.10+; the binary isn't notarized, so the cask's
   postflight_steps clears com.apple.quarantine on macOS.
 - Each release pushes a bot commit to main: pull before working.
