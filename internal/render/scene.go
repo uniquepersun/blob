@@ -90,10 +90,10 @@ func (r *Renderer) ensure(cols, rows int) {
 			v := math.Min(1, (dx*dx+dy*dy)*0.55)
 			c = Mix(c, bgVoid, v*v*0.9)
 			// Sparse lichen speckles so the floor isn't flat.
-			if n := noise.Float64(); n < 0.014 {
-				c = Mix(c, moss, 0.45)
-			} else if n < 0.019 {
-				c = Mix(c, mossLight, 0.35)
+			if n := noise.Float64(); n < 0.007 {
+				c = Mix(c, moss, 0.35)
+			} else if n < 0.01 {
+				c = Mix(c, mossLight, 0.25)
 			}
 			r.bg.Set(x, y, c)
 		}
@@ -236,6 +236,9 @@ func (r *Renderer) drawShadow(c *Canvas, b *game.Blob) {
 	}
 }
 
+// drawBlob keeps the look flat and readable at 8px: one body color, one
+// highlight, a 1px outline (cream for you, darker body color for bots) and
+// two tall eyes. Squash/stretch and the springs still drive the shape.
 func (r *Renderer) drawBlob(c *Canvas, w *game.World, b *game.Blob, t float64) {
 	breath := 1 + 0.03*math.Sin(t*2.4+b.Phase)
 	s := math.Max(0.05, b.Scale*breath)
@@ -244,57 +247,66 @@ func (r *Renderer) drawBlob(c *Canvas, w *game.World, b *game.Blob, t float64) {
 	cx, cy := b.Pos.X+r.off.X, b.Pos.Y+r.off.Y
 	sinA, cosA := math.Sincos(b.StretchAngle)
 
+	inside := func(x, y int) bool {
+		dx := float64(x) + 0.5 - cx
+		dy := float64(y) + 0.5 - cy
+		// Rotate into the stretch frame; stretch is area-preserving.
+		u := (dx*cosA + dy*sinA) / (R * st)
+		v := (-dx*sinA + dy*cosA) / (R / st)
+		return u*u+v*v <= 1
+	}
+
 	base := b.Color
-	duck := b.DuckTime > 0
+	line := Scale(base, 0.5)
+	if b.IsPlayer {
+		line = game.ColCream
+	}
+	if b.Shield > 0 && int(t*10)%2 == 0 {
+		line = white
+	}
+	hue := []RGB{game.ColTomato, game.ColMustard, game.ColSage, game.ColPeriwinkle}
+
 	ext := R*1.4 + 1
 	for y := int(cy - ext); y <= int(cy+ext); y++ {
 		for x := int(cx - ext); x <= int(cx+ext); x++ {
-			dx := float64(x) + 0.5 - cx
-			dy := float64(y) + 0.5 - cy
-			// Rotate into the stretch frame; stretch is area-preserving.
-			u := (dx*cosA + dy*sinA) / (R * st)
-			v := (-dx*sinA + dy*cosA) / (R / st)
-			rr := u*u + v*v
-			if rr > 1 {
+			if !inside(x, y) {
 				continue
 			}
-			nx, ny := dx/R, dy/R
+			nx := (float64(x) + 0.5 - cx) / R
+			ny := (float64(y) + 0.5 - cy) / R
 			col := base
+			edge := !inside(x-1, y) || !inside(x+1, y) || !inside(x, y-1) || !inside(x, y+1)
 			switch {
-			case (nx+0.38)*(nx+0.38)+(ny+0.42)*(ny+0.42) < 0.09:
-				col = Mix(base, white, 0.55)
-			case (nx+0.2)*(nx+0.2)+(ny+0.2)*(ny+0.2) < 0.3:
-				col = Mix(base, white, 0.15)
-			case ny > 0.25 && rr > 0.5:
-				col = Scale(base, 0.72)
-			}
-			if rr > 0.82 {
-				col = Scale(col, 0.88)
-			}
-			if duck && rr > 0.7 {
-				hue := []RGB{game.ColTomato, game.ColMustard, game.ColSage, game.ColPeriwinkle}
-				col = Mix(col, hue[int(t*12+math.Atan2(dy, dx)*2+10)%len(hue)], 0.75)
+			case edge:
+				col = line
+				if b.DuckTime > 0 {
+					col = hue[int(t*12+math.Atan2(ny, nx)*2+10)%len(hue)]
+				}
+			case (nx+0.4)*(nx+0.4)+(ny+0.45)*(ny+0.45) < 0.07:
+				col = Mix(base, white, 0.5)
 			}
 			if b.Flash > 0 {
 				col = Mix(col, white, 0.75)
-			} else if b.Shield > 0 && int(t*10)%2 == 0 {
-				col = Mix(col, white, 0.3)
 			}
 			c.Set(x, y, col)
 		}
 	}
 
-	// Eyes look where the blob is aiming.
-	if b.Blink <= 0 && s > 0.45 {
-		look := b.Aim.Mul(R * 0.3)
-		perp := b.Aim.Perp().Norm().Mul(R * 0.36)
-		e1 := game.V(cx, cy-R*0.12).Add(look).Add(perp)
-		e2 := game.V(cx, cy-R*0.12).Add(look).Sub(perp)
-		c.Set(int(e1.X), int(e1.Y), eye)
-		c.Set(int(e2.X), int(e2.Y), eye)
-		if b.Scale > 1.12 { // happy blush after a pickup or a pop
-			c.Blend(int(e1.X), int(e1.Y)+1, game.ColCoral, 0.6)
-			c.Blend(int(e2.X), int(e2.Y)+1, game.ColCoral, 0.6)
+	// Two tall eyes, always side by side, shifted toward where the blob
+	// aims; a blink is a one-pixel line.
+	if s > 0.45 {
+		look := b.Aim.Mul(R * 0.2)
+		apart := game.V(R*0.45, 0)
+		mid := game.V(cx, cy-R*0.25).Add(look)
+		for _, e := range []game.Vec{mid.Add(apart), mid.Sub(apart)} {
+			x, y := int(e.X), int(e.Y)
+			c.Set(x, y+1, eye)
+			if b.Blink <= 0 {
+				c.Set(x, y, eye)
+			}
+			if b.Scale > 1.12 { // happy blush after a pickup or a pop
+				c.Blend(x, y+2, game.ColCoral, 0.7)
+			}
 		}
 	}
 
@@ -306,18 +318,6 @@ func (r *Renderer) drawBlob(c *Canvas, w *game.World, b *game.Blob, t float64) {
 		c.Set(int(cx)-1, top-1, hc)
 		c.Set(int(cx), top-1, Mix(hc, white, 0.3))
 		c.Set(int(cx)+1, top-1, hc)
-	}
-
-	if b.HP < b.MaxHP { // tiny health pips under the blob
-		y := int(cy + R + 2)
-		x0 := int(cx) - (b.MaxHP-1)/2*2 - (b.MaxHP-1)%2
-		for i := 0; i < b.MaxHP; i++ {
-			col := Scale(game.ColCream, 0.35)
-			if i < b.HP {
-				col = game.ColCream
-			}
-			c.Blend(x0+i*2, y, col, 0.9)
-		}
 	}
 }
 
