@@ -26,6 +26,10 @@ match. When the agent finishes, confetti, then a "done" card.
 ## Working preferences (Abhay)
 
 - Give complete file replacements, not diff-style patches.
+- Commits are Abhay's alone: never add `Co-Authored-By: Claude` or any
+  Claude attribution to commits or PRs.
+- Always fetch/pull before pushing (he edits the repo on GitHub too), and
+  don't push without being asked.
 - Be direct and technically substantive; push back clearly when something
   won't work as asked, and offer the alternative.
 
@@ -205,6 +209,42 @@ internal/ipc     Unix socket, one JSON line per event; kinds: working,
   "… done · blob" at the agent cursor; that is blobshot-only.
 - Socket: standalone `$XDG_RUNTIME_DIR` or tmpdir `/blob-<uid>.sock`;
   wrapper `blob-<uid>-<pid>.sock`, exported to the agent as `BLOB_SOCKET`.
+
+### Sound (internal/sound)
+- Abhay's call: on by default, quiet (master 0.45), `m` toggles and is
+  saved to `os.UserConfigDir()/blob/settings.json`; `BLOB_SOUND=0/1`
+  overrides without saving.
+- All effects synthesized at startup in synth.go (sine/tri/soft-square
+  tones with glide + exp decay, filtered noise for booms/whooshes). Tune
+  there; `blob sounds` plays each one. Tests check peak, NaN, silent tails.
+- One oto v3.5 stream, our mixer is its io.Reader (float32 mono 44.1k,
+  ~23ms buffer, tanh soft clip, per-effect min gap so burst fire doesn't
+  buzz). oto 3.5 is cgo-free on macOS (purego) and Linux (pure-Go
+  PulseAudio, ALSA via purego dlopen), so CGO_ENABLED=0 cross-builds work
+  for releases. Verified: cross-compiles for darwin+linux amd64/arm64;
+  `blob sounds` opened the device on the Mac. Not verified: Linux audio,
+  and whether ALSA prints to stderr on a box with no sound device.
+- internal/game stays audio-free: it appends `game.Sound` events to
+  `World.Sounds` (player-involved shots/hits/pickups/throws, all pops and
+  booms); the app drains them each tick and maps to sound IDs. Agent sounds
+  come from the app: Chime on attention, Done on done, but in the wrapper
+  only while the game is open (Abhay: no sounds while the game is hidden;
+  Claude's folder-trust dialog used to chime at startup). The nudge is
+  visual only. Standalone always chimes.
+- Abhay hit "sounds played at start, then never again" in a real session;
+  not reproducible headlessly. oto's macOS context stops for good after an
+  AudioQueue error (one context per process, can't recreate), so
+  `watch()` checks every 0.5s (ctx/player errors, stopped player, no
+  samples pulled for 1s → Suspend+Resume) and logs to BLOB_SOUND_LOG.
+  Root cause still unknown until a log from a real run comes back.
+- `blob hook` never touches audio (sound.New only in play()); hook latency
+  measured 7.2ms with oto linked (6.2ms before).
+
+### Releases (planned)
+- GitHub repo is `uniquepersun/blob` (renamed from Side-game on Oct 31);
+  module path `github.com/uniquepersun/blob`. Abhay edits the repo on
+  GitHub too (e.g. .github/FUNDING.yml): always fetch/pull before pushing.
+- Plan: GitHub Releases + Homebrew (goreleaser, tap repo). Not set up yet.
 
 ### Gameplay numbers
 Arena = pane cols × (rows−2)×2 pixels (top row HUD, bottom row hints).

@@ -67,6 +67,7 @@ agent finishes: confetti, then the game tucks itself away.
 | `space` | fire |
 | `e` / `b` / right click | throw a bomb |
 | `p` / `esc` | pause |
+| `m` | sound on / off (remembered) |
 | `ctrl+]` | show / hide the game (wrapper); with the panel open and the agent focused, back to the game |
 | click a pane | focus it |
 | `enter` | dismiss a "needs you / done" card and keep playing |
@@ -74,6 +75,15 @@ agent finishes: confetti, then the game tucks itself away.
 
 Pickups: **burst** blaster, **scatter** shot, **bombs**, **hearts**, and very
 rarely a golden **rubber duck**.
+
+### Sound
+
+Soft, quiet, generated sound effects (no audio files): pops, blips, bombs,
+and a chime when the agent needs you or finishes while you're playing (with
+`blob claude` and the game hidden, blob stays quiet). `m` mutes and blob remembers; `BLOB_SOUND=0` or `=1` forces
+it for one run. `blob sounds` plays every effect once. Audio goes through
+[oto](https://github.com/ebitengine/oto) (CoreAudio on macOS, PulseAudio or
+ALSA on Linux); with no audio device blob is simply silent.
 
 ### Smooth controls
 

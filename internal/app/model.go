@@ -17,6 +17,7 @@ import (
 	"github.com/uniquepersun/blob/internal/input"
 	"github.com/uniquepersun/blob/internal/ipc"
 	"github.com/uniquepersun/blob/internal/render"
+	"github.com/uniquepersun/blob/internal/sound"
 )
 
 const (
@@ -53,6 +54,8 @@ type Config struct {
 
 	Side    bool // wrapper: open the game on the right instead of below
 	GamePct int  // wrapper: game panel height in percent (stacked layout)
+
+	Sound *sound.Player // nil = silent
 }
 
 // Model is the Bubble Tea model. It is used through a pointer so the
@@ -264,6 +267,15 @@ func (m *Model) onTick(t time.Time) {
 		m.world.Step()
 		m.acc -= game.StepDT
 	}
+	for _, s := range m.world.DrainSounds() {
+		m.cfg.Sound.Play(gameSounds[s])
+	}
+}
+
+var gameSounds = map[game.Sound]sound.ID{
+	game.SndShoot: sound.Shoot, game.SndHit: sound.Hit, game.SndPop: sound.Pop,
+	game.SndPickup: sound.Pickup, game.SndQuack: sound.Quack,
+	game.SndThrow: sound.Throw, game.SndBoom: sound.Boom,
 }
 
 // scanPrompt watches the agent's screen for approval prompts. It is the
@@ -292,6 +304,17 @@ func (m *Model) onAgent(ev ipc.Event) {
 	// the agent we launched.
 	if ev.Agent != "" && (m.wrap == nil || m.agentName == "") {
 		m.agentName = ev.Agent
+	}
+	// Agent sounds only interrupt a game in progress. In the wrapper with the
+	// game hidden you're looking at the agent already (and startup prompts
+	// like Claude's folder-trust dialog shouldn't make noise).
+	if ev.Kind != m.agentKind && (m.wrap == nil || m.open) {
+		switch ev.Kind {
+		case ipc.Attention:
+			m.cfg.Sound.Play(sound.Chime)
+		case ipc.Done:
+			m.cfg.Sound.Play(sound.Done)
+		}
 	}
 	if m.wrap != nil {
 		m.onAgentWrapped(ev)
@@ -424,6 +447,18 @@ func (m *Model) onKeyPress(k tea.KeyPressMsg) tea.Cmd {
 	}
 
 	switch s {
+	case "m":
+		if m.cfg.Sound != nil {
+			muted := !m.cfg.Sound.Muted()
+			m.cfg.Sound.SetMuted(muted)
+			sound.SaveMuted(muted)
+			if muted {
+				m.flash("sound off · m turns it back on")
+			} else {
+				m.flash("sound on")
+			}
+		}
+		return nil
 	case "p", "esc":
 		if m.pause == notPaused {
 			m.setPause(pausedManual)
@@ -524,6 +559,7 @@ func (m *Model) trackEasterEggs(name string) {
 	}
 	if len(m.recentKeys) == 10 && strings.Join(m.recentKeys, ",") == strings.Join(konami, ",") {
 		m.world.TogglePartyMode()
+		m.cfg.Sound.Play(sound.Done)
 		m.recentKeys = nil
 	}
 	tail := strings.Join(m.recentKeys, "")
@@ -708,7 +744,7 @@ func (m *Model) ui() render.UI {
 		ui.PauseTitle, ui.PauseBody, ui.PauseHint = "paused", "the blobs are napping", "p to resume"
 	}
 
-	hints := "wasd move · mouse/arrows aim+fire · space fire · e bomb · p pause"
+	hints := "wasd move · mouse/arrows aim+fire · space fire · e bomb · p pause · m sound"
 	if m.wrap != nil {
 		hints += " · ctrl+] hide"
 	} else {

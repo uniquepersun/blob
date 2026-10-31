@@ -124,6 +124,29 @@ type Ring struct {
 	Color         RGB
 }
 
+// Sound is a game event worth a noise. Only things involving the player
+// make sounds (except pops and booms), so bots fighting far away stay quiet.
+type Sound int
+
+const (
+	SndShoot Sound = iota
+	SndHit
+	SndPop
+	SndPickup
+	SndQuack
+	SndThrow
+	SndBoom
+)
+
+func (w *World) sound(s Sound) { w.Sounds = append(w.Sounds, s) }
+
+// DrainSounds returns and clears the pending sound events.
+func (w *World) DrainSounds() []Sound {
+	s := w.Sounds
+	w.Sounds = w.Sounds[:0:0]
+	return s
+}
+
 // World holds the whole simulation. It has no idea it is being drawn in a
 // terminal, which keeps it testable and reusable for an SSH server later.
 type World struct {
@@ -140,6 +163,10 @@ type World struct {
 	Time  float64
 	Shake float64
 	Party bool // konami code easter egg
+
+	// Sounds is what happened this step that is worth a noise. The app
+	// drains it each frame; the sim never plays audio itself.
+	Sounds []Sound
 
 	rng         *rand.Rand
 	pickupTimer float64
@@ -371,6 +398,9 @@ func (w *World) hit(b *Blob, owner, dmg int, dir Vec, c RGB) {
 			Color: c, Life: 0.3, MaxLife: 0.3, Drag: 5,
 		})
 	}
+	if b.IsPlayer || owner == 0 {
+		w.sound(SndHit)
+	}
 	if w.rng.Float64() < 0.45 {
 		w.popup(hitWords[w.rng.Intn(len(hitWords))], b.Pos.Add(V(0, -BlobRadius-2)), ColCream)
 	}
@@ -399,6 +429,7 @@ func (w *World) pop(b *Blob, killer int) {
 	}
 	w.Rings = append(w.Rings, &Ring{Pos: b.Pos, MaxR: 9, Life: 0.3, MaxLife: 0.3, Color: b.Color})
 	w.popup("pop!", b.Pos, b.Color)
+	w.sound(SndPop)
 	for _, k := range w.Blobs {
 		if k.ID == killer && k.ID != b.ID {
 			k.Score++

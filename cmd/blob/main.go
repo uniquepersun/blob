@@ -25,6 +25,7 @@ import (
 	"github.com/uniquepersun/blob/internal/hook"
 	"github.com/uniquepersun/blob/internal/install"
 	"github.com/uniquepersun/blob/internal/ipc"
+	"github.com/uniquepersun/blob/internal/sound"
 )
 
 const version = "0.1.0"
@@ -53,6 +54,8 @@ func main() {
 		os.Exit(runInstall(args[0] == "uninstall", args[1:]))
 	case "send":
 		os.Exit(runSend(args[1:]))
+	case "sounds":
+		os.Exit(runSounds())
 	case "version", "--version", "-v":
 		fmt.Println("blob", version)
 		return
@@ -80,16 +83,23 @@ const usage = `blob: a cozy blob shooter for while your agent works
        --agy-permissions     agy only: also watch run_command (see README)
   blob uninstall <agent>     remove hooks
   blob send <working|attention|done> [message]   fake an event (testing)
+  blob sounds                play every sound effect once
 
 in game: wasd move · mouse or arrows aim+fire · space fire · e bomb
-         p pause · ctrl+] show/hide the game (wrapper)
+         p pause · m sound on/off · ctrl+] show/hide the game (wrapper)
 
 wrapper layout (environment):
   BLOB_GAME_PCT=60           game panel height in percent of the terminal
   BLOB_LAYOUT=side           open the game on the right instead of below
+
+sound: on and quiet by default; m toggles it and blob remembers.
+  BLOB_SOUND=0 | 1           force it off or on for this run
+  BLOB_SOUND_LOG=file        log audio events (for debugging sound)
 `
 
 func play(cfg app.Config) int {
+	cfg.Sound = sound.New(sound.StartMuted())
+	defer cfg.Sound.Close()
 	m := app.New(cfg)
 	p := tea.NewProgram(m)
 	m.SetSend(p.Send)
@@ -226,6 +236,20 @@ func runSend(args []string) int {
 	ev := ipc.Event{Agent: "test", Kind: ipc.Kind(args[0]), Message: strings.Join(args[1:], " ")}
 	if err := ipc.Send(ipc.SocketPath(), ev); err != nil {
 		die("no game listening on %s (%v)", ipc.SocketPath(), err)
+	}
+	return 0
+}
+
+func runSounds() int {
+	p := sound.New(false)
+	defer p.Close()
+	if !p.WaitReady(3 * time.Second) {
+		die("no audio device found")
+	}
+	for id, name := range sound.Names {
+		fmt.Println(name)
+		p.Play(sound.ID(id))
+		time.Sleep(p.Duration(sound.ID(id)) + 450*time.Millisecond)
 	}
 	return 0
 }

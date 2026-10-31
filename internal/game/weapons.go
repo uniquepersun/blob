@@ -91,6 +91,8 @@ func (w *World) fire(b *Blob) {
 
 	if !b.IsPlayer {
 		b.Cooldown *= botFireSlowdown
+	} else {
+		w.sound(SndShoot)
 	}
 
 	// The jerk: shrink instantly, the underdamped spring overshoots back
@@ -129,6 +131,9 @@ func (w *World) throwBomb(b *Blob) {
 	})
 	b.Scale = 0.7
 	b.ScaleVel = 0
+	if b.IsPlayer {
+		w.sound(SndThrow)
+	}
 }
 
 func (w *World) stepBombs(dt float64) {
@@ -155,6 +160,7 @@ func (w *World) stepBombs(dt float64) {
 
 func (w *World) explode(bm *Bomb) {
 	w.Shake = math.Max(w.Shake, 0.45)
+	w.sound(SndBoom)
 	w.Rings = append(w.Rings,
 		&Ring{Pos: bm.Pos, MaxR: bombRadius, Life: 0.35, MaxLife: 0.35, Color: ColGold},
 		&Ring{Pos: bm.Pos, MaxR: bombRadius * 0.6, Life: 0.25, MaxLife: 0.25, Color: ColCream},
@@ -268,6 +274,13 @@ func (w *World) collect(b *Blob, p *Pickup) {
 	case PickDuck:
 		b.DuckTime = duckDuration
 		label = "quack!"
+	}
+	if b.IsPlayer {
+		if p.Kind == PickDuck {
+			w.sound(SndQuack)
+		} else {
+			w.sound(SndPickup)
+		}
 	}
 	w.burst(p.Pos, ColGold, 8)
 	w.popup(label, b.Pos.Add(V(0, -BlobRadius-2)), ColGold)
