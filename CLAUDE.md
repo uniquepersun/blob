@@ -19,8 +19,9 @@ match. When the agent finishes, confetti, then a "done" card.
   touches the open-source angle too.
 - Owner: Abhay (college student; strong in Linux systems programming, Rust,
   Python, JS; has built a multiplayer SSH terminal game in Go before).
-- Status: v0.1 works on Abhay's machine (fish shell, Go 1.27, `~/go/bin` had
-  to be added to PATH with `fish_add_path (go env GOPATH)/bin`).
+- Status: v0.1 works on Abhay's machine. Currently developing on macOS
+  (Apple Silicon, zsh, Ghostty, Go 1.27); the original build was on Linux
+  with fish.
 
 ## Working preferences (Abhay)
 
@@ -30,12 +31,13 @@ match. When the agent finishes, confetti, then a "done" card.
 
 ## The pitch / demo (this is the whole point, protect it)
 
-1. `blob claude`, type a real task; the match starts when Claude starts working.
-2. Play: grab a burst blaster, throw a bomb.
-3. Claude asks to run a command: game freezes, card pulses, focus jumps to
-   Claude's prompt.
-4. Approve: you're back in the match mid-fight.
-5. Claude finishes: confetti, then a "done" card.
+1. `blob claude`, type a real task; Claude has the full screen and the corner
+   chip pulses "claude's working · ctrl+] play blob".
+2. `ctrl+]`: the game opens along the bottom. Grab a burst blaster, throw a bomb.
+3. Claude asks to run a command: the game hides, Claude gets the whole screen
+   and focus.
+4. Approve: the game comes back and you're in the match mid-fight.
+5. Claude finishes: confetti, then the game tucks away (chip shows ✓).
 
 Rehearse without an agent: `blob` in one pane, then
 `blob send attention "wants to use Bash"`, `blob send working`,
@@ -67,7 +69,8 @@ Claude Code / Codex / agy own their terminal screen; a plugin can't render a
 game inside it. Options considered: tmux/zellij split, tmux display-popup,
 kitty/wezterm splits, separate window. Chosen: **`blob <agent>` runs the agent
 in a pseudo-terminal (creack/pty), parses its output with charmbracelet/x/vt,
-and draws agent + game side by side in one terminal.** Why:
+and draws agent + game in one terminal** (game hidden behind a corner chip
+until you open it; see the state machine below). Why:
 - works with any CLI, hooks or not (`blob run -- <cmd>`);
 - blob owns the real terminal, so the Kitty keyboard protocol (key releases)
   works; tmux drops key-release events;
@@ -171,19 +174,35 @@ internal/ipc     Unix socket, one JSON line per event; kinds: working,
 ```
 
 ### App state machine (internal/app/model.go)
-- pause reasons: none, manual (p/esc), attention, done, waiting (wrapper start:
-  "give claude a task", game paused until first `working`).
-- attention → pause + (wrapper) focus agent.
-- done → celebrate, pause 1.3s later (so confetti is visible) + focus agent.
-- working → unpause if paused by attention/done/waiting + (wrapper) focus game.
-  `working` arrives on every tool call; only transitions matter.
+- Standalone: pause reasons none, manual (p/esc), attention, done.
+  attention → pause; done → celebrate, pause 1.3s later; working → unpause.
+- Wrapper (Abhay's design, Oct 31): the game is a panel that is **hidden by
+  default**; hidden counts as paused. `m.open` = panel visible.
+  - Hidden: agent gets the full terminal; a chip `● ctrl+] blob` sits in the
+    agent's top-right corner on row 0 (top-right because Claude Code's live
+    area is at the bottom). Clicking it opens the game.
+  - working transition (not every tool call) while hidden → chip grows and
+    pulses ("claude's working · ctrl+] play blob") for 5s. Never auto-opens.
+  - `ctrl+]`: hidden → open + focus game; open+game focused → hide;
+    open+agent focused → focus game.
+  - Open: game panel along the bottom, `BLOB_GAME_PCT` (default 60%) of rows,
+    agent keeps ≥8 rows. `BLOB_LAYOUT=side` restores the old right-hand panel
+    (needs ≥110 cols). The agent pty is resized on every open/close, so the
+    agent redraws to fit (accepted: you need to see its output).
+  - attention while open → hide, set `reopen`; next working → reopen + focus
+    game (the "back mid-fight" demo beat). Attention while hidden → nothing.
+  - done while open → confetti with agent focused, hide 1.3s later.
 - Wrapper prompt scan every 0.3s on the bottom 14 lines; needs 2 consecutive
   hits to raise attention; clears to working only if the scanner itself saw
   the prompt and it then disappears. Override regex with `BLOB_PROMPT_REGEX`.
-- `ctrl+]` toggles focus (ctrl+g avoided: Claude Code uses it). Click a pane
+- ctrl+g avoided for the switch key: Claude Code uses it. Click a pane
   to focus it. In wrapper, ctrl+c in the game shows a toast instead of quitting
-  (ctrl+c belongs to the agent). Side-by-side at ≥110 cols (agent 56%), else
-  stacked.
+  (ctrl+c belongs to the agent).
+- The wrapper strips OSC 0/1/2 (window titles) from agent output before the
+  emulator (`oscFilter` in wrap.go): x/vt v0.1.0 prints part of any title with
+  non-ASCII (Claude Code's "✳ ...") into the screen. blobshot's own emulator
+  has the same bug with blob's title, so text shots may show a stray
+  "… done · blob" at the agent cursor; that is blobshot-only.
 - Socket: standalone `$XDG_RUNTIME_DIR` or tmpdir `/blob-<uid>.sock`;
   wrapper `blob-<uid>-<pid>.sock`, exported to the agent as `BLOB_SOCKET`.
 
@@ -200,7 +219,12 @@ sleepy "z"s on paused blobs, typing `sudo` → "nice try. blobs don't do sudo".
 
 ## Verified vs not verified
 
-Verified headlessly with blobshot (Linux, x/vt terminal): full demo loop with a
+Oct 31 (macOS): hidden → nudge → open → attention hides → answer reopens →
+done confetti → hides, verified with blobshot and a fake agent script that
+sends real events; `internal/app` now has tests for the panel state machine
+and the OSC filter.
+
+Earlier, verified headlessly with blobshot (Linux, x/vt terminal): full demo loop with a
 fake Claude calling the real `blob hook claude` (waiting → playing → attention
 with focus jump → resume with focus back → done); stacked and side layouts;
 party mode; hook latency ~10ms with no listener; installer idempotency, backup,
@@ -213,8 +237,8 @@ Not verified:
 - Real Claude Code / Codex / Gemini / agy runs (only a fake agent). Codex
   hooks.json shape especially.
 - Prompt regex against real agent screens (tuned on a fake Claude prompt).
-- macOS (socket path length limit is ~104 chars; tmpdir paths are long but
-  should fit).
+- macOS: builds and tests pass; default socket path (~70 chars under
+  $TMPDIR) fits the 104 limit. Not yet run interactively.
 
 ## Build notes
 

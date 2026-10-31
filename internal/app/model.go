@@ -1,5 +1,5 @@
-// Package app is the Bubble Tea program: the game on its own, or the game
-// side by side with an agent running in a pseudo-terminal.
+// Package app is the Bubble Tea program: the game on its own, or an agent
+// running in a pseudo-terminal with the game tucked away until you open it.
 package app
 
 import (
@@ -24,7 +24,10 @@ const (
 	scanEvery   = 0.3 // seconds between prompt scans of the agent screen
 	donePauseIn = 1.3 // let the celebration confetti fly before freezing
 	switchKey   = "ctrl+]"
-	minSideCols = 110 // below this the wrapper stacks agent above game
+	minSideCols = 110 // side layout needs this many columns, else it stacks
+	nudgeFor    = 5.0 // seconds the corner chip pulses when the agent starts
+	defGamePct  = 60  // game panel height, percent of the terminal
+	minAgentH   = 8   // the agent keeps at least this many rows
 )
 
 type (
@@ -39,7 +42,6 @@ const (
 	pausedManual
 	pausedAttention
 	pausedDone
-	pausedWaiting // wrapper start: waiting for the first task
 )
 
 // Config is how main starts the app.
@@ -48,6 +50,9 @@ type Config struct {
 	Agent  string   // wrapper mode: display name ("claude")
 	Argv   []string // wrapper mode: command to run
 	Bots   int
+
+	Side    bool // wrapper: open the game on the right instead of below
+	GamePct int  // wrapper: game panel height in percent (stacked layout)
 }
 
 // Model is the Bubble Tea model. It is used through a pointer so the
@@ -75,6 +80,12 @@ type Model struct {
 	pause      pauseReason
 	pauseAt    float64 // when a pending done-pause kicks in (0 = none)
 	focusGame  bool
+	open       bool    // wrapper: game panel visible
+	reopen     bool    // wrapper: reopen the game when the agent resumes
+	hideAt     float64 // wrapper: close the panel after the done confetti
+	nudgeUntil float64 // wrapper: corner chip pulses until then
+	chipX      int     // wrapper: corner chip on row 0, for clicks
+	chipW      int
 	wrap       *wrapper
 	promptRe   *regexp.Regexp
 	nextScan   float64
@@ -97,6 +108,9 @@ func New(cfg Config) *Model {
 	if cfg.Bots == 0 {
 		cfg.Bots = 3
 	}
+	if cfg.GamePct < 20 || cfg.GamePct > 85 {
+		cfg.GamePct = defGamePct
+	}
 	m := &Model{
 		cfg:       cfg,
 		world:     game.NewWorld(80, 40, cfg.Bots, time.Now().UnixNano()),
@@ -110,8 +124,7 @@ func New(cfg Config) *Model {
 	m.last = m.start
 	if len(cfg.Argv) > 0 {
 		m.wrap = newWrapper(cfg.Agent, cfg.Argv, cfg.Socket)
-		m.focusGame = false
-		m.pause = pausedWaiting
+		m.focusGame = false // the agent gets the whole screen until you open the game
 	}
 	return m
 }
@@ -189,25 +202,30 @@ func (m *Model) agentFocused() bool { return m.wrap != nil && !m.focusGame && m.
 
 func (m *Model) relayout() {
 	l := layout{}
-	if m.wrap == nil {
+	switch {
+	case m.wrap == nil:
 		l.gameW, l.gameH = m.cols, m.rows
-	} else if m.cols >= minSideCols {
+	case !m.open:
+		l.agentW, l.agentH = m.cols, m.rows
+	case m.cfg.Side && m.cols >= minSideCols:
 		l.side = true
 		l.agentW = m.cols * 56 / 100
 		l.agentH = m.rows
 		l.gameX = l.agentW + 1
 		l.gameW = m.cols - l.gameX
 		l.gameH = m.rows
-	} else {
+	default:
 		l.agentW = m.cols
-		l.agentH = max(6, m.rows*55/100)
+		l.agentH = max(min(minAgentH, m.rows/2), m.rows-1-m.rows*m.cfg.GamePct/100)
 		l.gameY = l.agentH + 1
 		l.gameW = m.cols
 		l.gameH = max(1, m.rows-l.gameY)
 	}
 	m.lay = l
-	aw, ah := render.ArenaSize(l.gameW, l.gameH)
-	m.world.Resize(float64(aw), float64(ah))
+	if l.gameW > 0 && l.gameH > 0 {
+		aw, ah := render.ArenaSize(l.gameW, l.gameH)
+		m.world.Resize(float64(aw), float64(ah))
+	}
 	if m.wrap != nil {
 		m.wrap.resize(l.agentW, l.agentH)
 	}
@@ -222,14 +240,18 @@ func (m *Model) onTick(t time.Time) {
 		m.pauseAt = 0
 		m.setPause(pausedDone)
 	}
+	if m.hideAt > 0 && m.now >= m.hideAt {
+		m.hideAt = 0
+		m.showGame(false)
+	}
 
 	if m.wrap != nil && m.now >= m.nextScan {
 		m.nextScan = m.now + scanEvery
 		m.scanPrompt()
 	}
 
-	if m.pause != notPaused {
-		m.acc = 0
+	if m.pause != notPaused || (m.wrap != nil && !m.open) {
+		m.acc = 0 // hidden counts as paused
 		return
 	}
 	m.acc += dt
@@ -271,15 +293,16 @@ func (m *Model) onAgent(ev ipc.Event) {
 	if ev.Agent != "" && (m.wrap == nil || m.agentName == "") {
 		m.agentName = ev.Agent
 	}
+	if m.wrap != nil {
+		m.onAgentWrapped(ev)
+		return
+	}
 	prev := m.agentKind
 	switch ev.Kind {
 	case ipc.Attention:
 		m.agentKind, m.agentMsg = ipc.Attention, ev.Message
 		m.pauseAt = 0
 		m.setPause(pausedAttention)
-		if m.wrap != nil {
-			m.setFocus(false) // jump to the agent so you can answer right away
-		}
 	case ipc.Done:
 		m.agentKind, m.agentMsg = ipc.Done, ev.Message
 		if prev != ipc.Done && m.pause == notPaused {
@@ -288,21 +311,65 @@ func (m *Model) onAgent(ev ipc.Event) {
 		} else if m.pause != pausedManual {
 			m.setPause(pausedDone)
 		}
-		if m.wrap != nil {
-			m.setFocus(false)
-		}
 	case ipc.Working:
 		m.agentKind, m.agentMsg = ipc.Working, ""
 		m.pauseAt = 0
-		if m.pause == pausedAttention || m.pause == pausedDone || m.pause == pausedWaiting {
+		if m.pause == pausedAttention || m.pause == pausedDone {
 			m.setPause(notPaused)
-			if m.wrap != nil {
-				m.setFocus(true) // back to the game while the agent works
-			}
 		}
 	case ipc.Ended:
 		m.agentKind, m.agentMsg = ipc.Ended, ""
 	}
+}
+
+// onAgentWrapped: the agent owns the screen whenever it needs you; the game
+// only opens when you ask for it, or comes back if a question interrupted it.
+func (m *Model) onAgentWrapped(ev ipc.Event) {
+	prev := m.agentKind
+	switch ev.Kind {
+	case ipc.Attention:
+		m.agentKind, m.agentMsg = ipc.Attention, ev.Message
+		m.hideAt, m.nudgeUntil = 0, 0
+		if m.open {
+			m.showGame(false)
+			m.reopen = true // you were mid-fight: come back after answering
+		}
+	case ipc.Done:
+		m.agentKind, m.agentMsg = ipc.Done, ev.Message
+		m.reopen, m.nudgeUntil = false, 0
+		if m.open && prev != ipc.Done && m.hideAt == 0 {
+			m.world.Celebrate()
+			m.hideAt = m.now + donePauseIn
+			m.setFocus(false) // keys go to the agent while the confetti flies
+		} else if m.open && m.hideAt == 0 {
+			m.showGame(false)
+		}
+	case ipc.Working:
+		m.agentKind, m.agentMsg = ipc.Working, ""
+		if prev == ipc.Working {
+			return // arrives on every tool call; only the transition matters
+		}
+		switch {
+		case m.reopen:
+			m.showGame(true)
+		case !m.open:
+			m.nudgeUntil = m.now + nudgeFor
+		}
+	case ipc.Ended:
+		m.agentKind, m.agentMsg = ipc.Ended, ""
+	}
+}
+
+// showGame opens or closes the game panel. The agent's pty is resized, so
+// it redraws to fit the space it has.
+func (m *Model) showGame(on bool) {
+	if m.wrap == nil || m.open == on {
+		return
+	}
+	m.open = on
+	m.reopen, m.hideAt, m.nudgeUntil = false, 0, 0
+	m.relayout()
+	m.setFocus(on)
 }
 
 func (m *Model) setPause(p pauseReason) {
@@ -316,19 +383,27 @@ func (m *Model) setFocus(game bool) {
 	if m.wrap == nil || m.focusGame == game {
 		return
 	}
+	if game && !m.open {
+		m.showGame(true) // calls back here with the panel open
+		return
+	}
 	m.focusGame = game
 	m.in.ClearKeys()
 	m.wrap.focus(!game)
-	if game && m.pause == pausedWaiting {
-		m.setPause(notPaused) // jumped to the game before giving the agent work: just play
-	}
 }
 
 func (m *Model) onKeyPress(k tea.KeyPressMsg) tea.Cmd {
 	s := k.String()
 
 	if m.wrap != nil && s == switchKey {
-		m.setFocus(!m.focusGame)
+		switch {
+		case !m.open:
+			m.showGame(true)
+		case m.focusGame:
+			m.showGame(false)
+		default:
+			m.setFocus(true) // panel open, agent focused: back to the game
+		}
 		return nil
 	}
 	if m.agentFocused() {
@@ -339,7 +414,7 @@ func (m *Model) onKeyPress(k tea.KeyPressMsg) tea.Cmd {
 		return tea.Quit
 	}
 	if m.wrap != nil && s == "ctrl+c" {
-		m.flash("ctrl+] switches to " + m.agentName + " (ctrl+c works there)")
+		m.flash("ctrl+] hides the game (ctrl+c works in " + m.agentName + ")")
 		return nil
 	}
 
@@ -381,7 +456,12 @@ func (m *Model) onMouse(msg tea.MouseMsg) {
 		mo.X < m.lay.gameX+m.lay.gameW && mo.Y < m.lay.gameY+m.lay.gameH
 
 	if m.wrap != nil {
-		if _, click := msg.(tea.MouseClickMsg); click {
+		_, click := msg.(tea.MouseClickMsg)
+		if click && !m.open && m.chipW > 0 && mo.Y == 0 && mo.X >= m.chipX && mo.X < m.chipX+m.chipW {
+			m.showGame(true) // clicked the corner chip
+			return
+		}
+		if click {
 			m.setFocus(inGame) // click a pane to focus it
 		}
 		if !inGame {
@@ -463,11 +543,14 @@ func (m *Model) View() tea.View {
 	if m.cols == 0 || m.rows == 0 {
 		return tea.NewView("")
 	}
-	ui := m.ui()
-	gameLines := m.rend.Render(m.world, ui, m.lay.gameW, m.lay.gameH)
+	var gameLines []string
+	if m.lay.gameW > 0 && m.lay.gameH > 0 {
+		gameLines = m.rend.Render(m.world, m.ui(), m.lay.gameW, m.lay.gameH)
+	}
 
 	var b strings.Builder
 	var v tea.View
+	m.chipW = 0
 	if m.wrap == nil {
 		b.WriteString(strings.Join(gameLines, "\n"))
 	} else {
@@ -476,6 +559,16 @@ func (m *Model) View() tea.View {
 			agent = m.wrap.lines()
 		} else {
 			agent = blankLines(m.lay.agentW, m.lay.agentH)
+		}
+		if !m.open {
+			m.drawChip(agent)
+			b.WriteString(strings.Join(agent, "\n"))
+			if m.agentFocused() {
+				if x, y, ok := m.wrap.cursor(); ok {
+					v.Cursor = tea.NewCursor(x, y)
+				}
+			}
+			return m.finish(v, b.String())
 		}
 		div := "\x1b[38;2;58;50;88m"
 		if m.focusGame {
@@ -507,7 +600,11 @@ func (m *Model) View() tea.View {
 			}
 		}
 	}
-	v.Content = b.String()
+	return m.finish(v, b.String())
+}
+
+func (m *Model) finish(v tea.View, content string) tea.View {
+	v.Content = content
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeAllMotion
 	v.ReportFocus = true
@@ -515,6 +612,48 @@ func (m *Model) View() tea.View {
 	v.WindowTitle = m.title()
 	return v
 }
+
+// drawChip puts the small "ctrl+] blob" chip in the agent's top-right
+// corner while the game is hidden. It grows and pulses for a few seconds
+// when the agent starts working, to nudge you toward a round.
+func (m *Model) drawChip(agent []string) {
+	if len(agent) == 0 || !m.wrap.started() {
+		return
+	}
+	name := firstNonEmpty(m.agentName, "agent")
+	icon, fg := "●", game.Hex(0x8C84A8)
+	switch m.agentKind {
+	case ipc.Working:
+		icon, fg = spinner[int(m.now*10)%len(spinner)], game.ColPeriwinkle
+	case ipc.Attention:
+		icon, fg = "◆", game.ColCoral
+	case ipc.Done:
+		icon, fg = "✓", game.ColSage
+	}
+	bg := game.Hex(0x221D33)
+	text := " " + icon + " " + switchKey + " blob "
+	bold := false
+	if m.now < m.nudgeUntil {
+		text = " " + icon + " " + name + "'s working · " + switchKey + " play blob "
+		pulse := 0.5 + 0.5*math.Sin(m.now*2*math.Pi/1.2)
+		bg = render.Mix(game.Hex(0x221D33), game.Hex(0x3C3466), pulse)
+		fg, bold = game.ColMustard, true
+	}
+	w := render.Width(text)
+	cols := m.lay.agentW
+	if cols < w+12 {
+		return // too narrow to spare the corner
+	}
+	x := cols - w - 1
+	seq := "\x1b[0m\x1b[48;2;" + rgb(bg) + "m\x1b[38;2;" + rgb(fg) + "m"
+	if bold {
+		seq += "\x1b[1m"
+	}
+	agent[0] = m.wrap.rowRange(0, 0, x) + seq + text + "\x1b[0m" + m.wrap.rowRange(0, x+w, cols)
+	m.chipX, m.chipW = x, w
+}
+
+func rgb(c game.RGB) string { return fmt.Sprintf("%d;%d;%d", c.R, c.G, c.B) }
 
 func (m *Model) title() string {
 	name := firstNonEmpty(m.agentName, "agent")
@@ -531,7 +670,7 @@ var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "
 
 func (m *Model) ui() render.UI {
 	name := firstNonEmpty(m.agentName, "agent")
-	ui := render.UI{Time: m.now, Dim: m.wrap != nil && !m.focusGame && m.pause == notPaused}
+	ui := render.UI{Time: m.now, Dim: m.wrap != nil && !m.focusGame && m.pause == notPaused && m.hideAt == 0}
 
 	switch m.agentKind {
 	case ipc.Working:
@@ -567,16 +706,11 @@ func (m *Model) ui() render.UI {
 	case pausedManual:
 		ui.Paused, ui.PauseAccent = true, game.ColPeriwinkle
 		ui.PauseTitle, ui.PauseBody, ui.PauseHint = "paused", "the blobs are napping", "p to resume"
-	case pausedWaiting:
-		ui.Paused, ui.PauseAccent = true, game.ColMustard
-		ui.PauseTitle = "give " + name + " a task"
-		ui.PauseBody = "the match starts when it gets to work"
-		ui.PauseHint = "ctrl+] to play right now"
 	}
 
 	hints := "wasd move · mouse/arrows aim+fire · space fire · e bomb · p pause"
 	if m.wrap != nil {
-		hints += " · ctrl+] " + name
+		hints += " · ctrl+] hide"
 	} else {
 		hints += " · q quit"
 	}

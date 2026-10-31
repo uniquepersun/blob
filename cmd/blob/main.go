@@ -1,7 +1,7 @@
 // Command blob is a cozy blob shooter that lives next to your coding agent.
 //
 //	blob                      play on your own (hooks from any agent pause it)
-//	blob claude [args...]     run Claude Code and the game side by side
+//	blob claude [args...]     run Claude Code with the game a keypress away
 //	blob codex|gemini|agy     same for other agents
 //	blob run -- <cmd...>      same for any CLI
 //	blob install <agent>      add blob's hooks to an agent's config
@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,7 +72,7 @@ func main() {
 const usage = `blob: a cozy blob shooter for while your agent works
 
   blob                       play; any agent with blob hooks pauses it
-  blob claude [args...]      Claude Code and the game side by side
+  blob claude [args...]      Claude Code, with the game a keypress away
   blob codex | gemini | agy  same for other agents
   blob run -- <cmd...>       same for any CLI
   blob install <agent>       add hooks (claude, codex, gemini, agy)
@@ -81,7 +82,11 @@ const usage = `blob: a cozy blob shooter for while your agent works
   blob send <working|attention|done> [message]   fake an event (testing)
 
 in game: wasd move · mouse or arrows aim+fire · space fire · e bomb
-         p pause · ctrl+] switch between agent and game (wrapper)
+         p pause · ctrl+] show/hide the game (wrapper)
+
+wrapper layout (environment):
+  BLOB_GAME_PCT=60           game panel height in percent of the terminal
+  BLOB_LAYOUT=side           open the game on the right instead of below
 `
 
 func play(cfg app.Config) int {
@@ -116,7 +121,14 @@ func wrap(name string, argv []string) int {
 	// Each wrapped session gets its own socket; the agent inherits
 	// BLOB_SOCKET, so its hooks reach this window and not some other game.
 	sock := filepath.Join(filepath.Dir(ipc.SocketPath()), fmt.Sprintf("blob-%d-%d.sock", os.Getuid(), os.Getpid()))
-	return play(app.Config{Socket: sock, Agent: name, Argv: argv})
+	pct, _ := strconv.Atoi(os.Getenv("BLOB_GAME_PCT"))
+	return play(app.Config{
+		Socket:  sock,
+		Agent:   name,
+		Argv:    argv,
+		Side:    os.Getenv("BLOB_LAYOUT") == "side",
+		GamePct: pct,
+	})
 }
 
 // runHook is what agents execute. It reads the hook payload, forwards one

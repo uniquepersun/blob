@@ -38,7 +38,7 @@ Bubble Tea 2.1. The API used here is the same.
 ## Run it
 
 ```sh
-blob claude            # Claude Code on the left, the game on the right
+blob claude            # Claude Code full screen, the game one keypress away
 blob claude --resume   # anything after the agent name goes to the agent
 blob codex | blob gemini | blob agy
 blob run -- aider      # any other CLI (prompt detection only, no hooks)
@@ -46,7 +46,16 @@ blob                   # just the game; put it in its own pane/tab and any
                        # agent with blob hooks installed will pause it
 ```
 
-Under 110 columns the agent sits on top and the game below.
+The agent gets the whole terminal. A small `ctrl+] blob` chip sits in the
+top-right corner and pulses for a few seconds when the agent starts working.
+`ctrl+]` (or clicking the chip) opens the game in a panel along the bottom;
+`ctrl+]` again hides it. When the agent asks for permission the game hides so
+the prompt gets the whole screen, and comes back once you answer. When the
+agent finishes: confetti, then the game tucks itself away.
+
+- `BLOB_GAME_PCT=70 blob claude`: game panel height (default 60%)
+- `BLOB_LAYOUT=side blob claude`: open the game on the right instead
+  (needs 110+ columns)
 
 ## Controls
 
@@ -58,7 +67,7 @@ Under 110 columns the agent sits on top and the game below.
 | `space` | fire |
 | `e` / `b` / right click | throw a bomb |
 | `p` / `esc` | pause |
-| `ctrl+]` | switch between the agent and the game (wrapper) |
+| `ctrl+]` | show / hide the game (wrapper); with the panel open and the agent focused, back to the game |
 | click a pane | focus it |
 | `enter` | dismiss a "needs you / done" card and keep playing |
 | `q` | quit (standalone) |

@@ -34,6 +34,7 @@ type wrapper struct {
 	cmd  *exec.Cmd
 	ptmx *os.File
 	emu  *vt.Emulator
+	osc  oscFilter
 
 	cols, rows int
 }
@@ -91,7 +92,70 @@ func (w *wrapper) start(cols, rows int, send func(tea.Msg)) error {
 	return nil
 }
 
-func (w *wrapper) write(b []byte) { _, _ = w.emu.Write(b) }
+func (w *wrapper) write(b []byte) { _, _ = w.emu.Write(w.osc.filter(b)) }
+
+// oscFilter drops window-title sequences (OSC 0/1/2) from the agent's
+// output. x/vt v0.1.0 mis-parses titles containing non-ASCII (Claude Code
+// sets ones like "✳ ...") and prints part of them into the screen. The
+// title is ours to set anyway. Sequences can straddle reads, so it keeps
+// state between calls.
+type oscFilter struct {
+	state byte // 0 text, 1 after ESC, 2 in OSC, 3 ESC inside OSC
+	body  []byte
+}
+
+const maxOSC = 1 << 20
+
+func (f *oscFilter) filter(in []byte) []byte {
+	out := make([]byte, 0, len(in))
+	for _, c := range in {
+		switch f.state {
+		case 0:
+			if c == 0x1b {
+				f.state = 1
+			} else {
+				out = append(out, c)
+			}
+		case 1:
+			if c == ']' {
+				f.state, f.body = 2, f.body[:0]
+			} else {
+				f.state = 0
+				out = append(out, 0x1b, c)
+			}
+		case 2:
+			switch {
+			case c == 0x07:
+				out = f.end(out, "\x07")
+			case c == 0x1b:
+				f.state = 3
+			case len(f.body) >= maxOSC: // runaway: give up filtering it
+				out = append(append(append(out, 0x1b, ']'), f.body...), c)
+				f.state = 0
+			default:
+				f.body = append(f.body, c)
+			}
+		case 3:
+			if c == '\\' {
+				out = f.end(out, "\x1b\\")
+			} else { // ESC that isn't ST: OSC ends, ESC starts a new sequence
+				out = f.end(out, "")
+				f.state = 1
+				out = append(out, f.filter([]byte{c})...)
+			}
+		}
+	}
+	return out
+}
+
+func (f *oscFilter) end(out []byte, term string) []byte {
+	f.state = 0
+	if b := f.body; len(b) >= 2 && b[1] == ';' && (b[0] == '0' || b[0] == '1' || b[0] == '2') {
+		return out // a title: drop it
+	}
+	out = append(append(out, 0x1b, ']'), f.body...)
+	return append(out, term...)
+}
 
 func (w *wrapper) resize(cols, rows int) {
 	if !w.started() || (cols == w.cols && rows == w.rows) {
@@ -150,38 +214,43 @@ func (w *wrapper) lines() []string {
 	var sb strings.Builder
 	for y := 0; y < w.rows; y++ {
 		sb.Reset()
-		var last uv.Style
-		first := true
-		for x := 0; x < w.cols; x++ {
-			c := w.emu.CellAt(x, y)
-			if c == nil {
-				if !first && !last.IsZero() {
-					sb.WriteString("\x1b[0m")
-					last, first = uv.Style{}, false
-				}
-				sb.WriteByte(' ')
-				continue
-			}
-			if c.Width == 0 {
-				continue // trailing half of a wide character
-			}
-			if first || !c.Style.Equal(&last) {
-				sb.WriteString("\x1b[0m")
-				if !c.Style.IsZero() {
-					sb.WriteString(c.Style.String())
-				}
-				last, first = c.Style, false
-			}
-			if c.Content == "" {
-				sb.WriteByte(' ')
-			} else {
-				sb.WriteString(c.Content)
-			}
-		}
-		sb.WriteString("\x1b[0m")
+		w.row(&sb, y, 0, w.cols)
 		out[y] = sb.String()
 	}
 	return out
+}
+
+// rowRange renders columns [x0, x1) of one row, exactly x1-x0 columns wide.
+func (w *wrapper) rowRange(y, x0, x1 int) string {
+	var sb strings.Builder
+	w.row(&sb, y, x0, x1)
+	return sb.String()
+}
+
+// row writes columns [x0, x1) of row y. A wide character cut by either edge
+// becomes spaces so the width always comes out exact.
+func (w *wrapper) row(sb *strings.Builder, y, x0, x1 int) {
+	var last uv.Style
+	styled := false
+	for x := x0; x < x1; {
+		content, style, width := " ", uv.Style{}, 1
+		if c := w.emu.CellAt(x, y); c != nil && c.Width > 0 && x+c.Width <= x1 {
+			style, width = c.Style, c.Width
+			if c.Content != "" {
+				content = c.Content
+			}
+		}
+		if !styled || !style.Equal(&last) {
+			sb.WriteString("\x1b[0m")
+			if !style.IsZero() {
+				sb.WriteString(style.String())
+			}
+			last, styled = style, true
+		}
+		sb.WriteString(content)
+		x += width
+	}
+	sb.WriteString("\x1b[0m")
 }
 
 // cursor returns the agent's cursor position and whether it is visible.
