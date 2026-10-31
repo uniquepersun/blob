@@ -66,8 +66,10 @@ agent finishes: confetti, then the game tucks itself away.
 | arrow keys | aim and fire in that direction |
 | `space` | fire |
 | `e` / `b` / right click | throw a bomb |
-| `p` / `esc` | pause |
+| `esc` | the menu: blob look, sound, shot sound, bots, game size and layout, controls, new match |
+| `p` | pause |
 | `m` | sound on / off (remembered) |
+| `c` | pick the blob look: classic or simple (remembered) |
 | `ctrl+]` | show / hide the game (wrapper); with the panel open and the agent focused, back to the game |
 | click a pane | focus it |
 | `enter` | dismiss a "needs you / done" card and keep playing |
@@ -81,7 +83,13 @@ rarely a golden **rubber duck**.
 Soft, quiet, generated sound effects (no audio files): pops, blips, bombs,
 and a chime when the agent needs you or finishes while you're playing (with
 `blob claude` and the game hidden, blob stays quiet). `m` mutes and blob remembers; `BLOB_SOUND=0` or `=1` forces
-it for one run. `blob sounds` plays every effect once. Audio goes through
+it for one run. `blob sounds` plays every effect once; `blob sounds shots`
+compares the shot sounds, and `BLOB_SHOT=pew|plip|puff|tick|off` picks one.
+
+On first launch blob asks which blob look you want (classic, shaded, or
+simple, flat with outlines); `c` or the esc menu changes it any time.
+Everything you set in the esc menu is remembered; the `BLOB_*` environment
+variables override it for a single run. Audio goes through
 [oto](https://github.com/ebitengine/oto) (CoreAudio on macOS, PulseAudio or
 ALSA on Linux); with no audio device blob is simply silent.
 

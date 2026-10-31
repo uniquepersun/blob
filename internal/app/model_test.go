@@ -4,7 +4,10 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/uniquepersun/blob/internal/ipc"
+	"github.com/uniquepersun/blob/internal/render"
 )
 
 func TestOSCFilterDropsTitlesAcrossReads(t *testing.T) {
@@ -80,5 +83,103 @@ func TestDoneCelebratesThenHides(t *testing.T) {
 	m.onTick(m.start.Add(time.Duration((m.hideAt + 0.05) * float64(time.Second))))
 	if m.open {
 		t.Fatal("panel should close after the confetti")
+	}
+}
+
+func press(m *Model, keys ...string) {
+	for _, k := range keys {
+		var msg tea.KeyPressMsg
+		switch k {
+		case "esc":
+			msg = tea.KeyPressMsg{Code: tea.KeyEscape}
+		case "enter":
+			msg = tea.KeyPressMsg{Code: tea.KeyEnter}
+		case "space":
+			msg = tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
+		case "up":
+			msg = tea.KeyPressMsg{Code: tea.KeyUp}
+		case "down":
+			msg = tea.KeyPressMsg{Code: tea.KeyDown}
+		case "left":
+			msg = tea.KeyPressMsg{Code: tea.KeyLeft}
+		case "right":
+			msg = tea.KeyPressMsg{Code: tea.KeyRight}
+		default:
+			msg = tea.KeyPressMsg{Code: rune(k[0]), Text: k}
+		}
+		m.onKeyPress(msg)
+	}
+}
+
+func standalone(t *testing.T) *Model {
+	t.Setenv("HOME", t.TempDir()) // prefs land in a temp dir
+	m := New(Config{Style: "classic"})
+	m.cols, m.rows = 100, 30
+	m.relayout()
+	return m
+}
+
+func TestSpaceDoesNotConfirmFirstRunPicker(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := New(Config{})
+	m.cols, m.rows = 100, 30
+	m.relayout()
+	press(m, "space")
+	if !m.picking {
+		t.Fatal("space (the fire key) dismissed the picker")
+	}
+	press(m, "right", "enter")
+	if m.picking || m.style != render.StyleSimple {
+		t.Fatalf("picking=%v style=%v", m.picking, m.style)
+	}
+}
+
+func TestCOpensPickerAndEscCancels(t *testing.T) {
+	m := standalone(t)
+	press(m, "c", "right")
+	if !m.picking || m.style != render.StyleSimple {
+		t.Fatal("c should open the picker and preview live")
+	}
+	press(m, "esc")
+	if m.picking || m.style != render.StyleClassic {
+		t.Fatal("esc should cancel back to the old look")
+	}
+}
+
+func TestEscMenuChangesBotsAndCloses(t *testing.T) {
+	m := standalone(t)
+	press(m, "esc")
+	if !m.menu {
+		t.Fatal("esc should open the menu")
+	}
+	rows := m.menuRows()
+	for m.menuRows()[m.menuSel] != rowBots {
+		press(m, "down")
+	}
+	press(m, "right")
+	if m.cfg.Bots != 4 || len(m.world.Blobs) != 5 {
+		t.Fatalf("bots=%d blobs=%d", m.cfg.Bots, len(m.world.Blobs))
+	}
+	if len(rows) != len(m.menuRows()) || m.menuView().Items[m.menuSel].Value != "4" {
+		t.Fatal("menu should show the new bot count")
+	}
+	press(m, "esc")
+	if m.menu {
+		t.Fatal("esc should close the menu")
+	}
+}
+
+func TestMenuGameSizeResizesPanel(t *testing.T) {
+	m := wrapped()
+	t.Setenv("HOME", t.TempDir())
+	m.showGame(true)
+	before := m.lay.gameH
+	m.openMenu()
+	for m.menuRows()[m.menuSel] != rowSize {
+		press(m, "down")
+	}
+	press(m, "right", "right")
+	if m.cfg.GamePct != 70 || m.lay.gameH <= before {
+		t.Fatalf("pct=%d gameH %d -> %d", m.cfg.GamePct, before, m.lay.gameH)
 	}
 }

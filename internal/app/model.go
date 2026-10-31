@@ -16,6 +16,7 @@ import (
 	"github.com/uniquepersun/blob/internal/game"
 	"github.com/uniquepersun/blob/internal/input"
 	"github.com/uniquepersun/blob/internal/ipc"
+	"github.com/uniquepersun/blob/internal/prefs"
 	"github.com/uniquepersun/blob/internal/render"
 	"github.com/uniquepersun/blob/internal/sound"
 )
@@ -56,6 +57,8 @@ type Config struct {
 	GamePct int  // wrapper: game panel height in percent (stacked layout)
 
 	Sound *sound.Player // nil = silent
+	Style string        // saved blob style; "" = first run, show the picker
+	Shot  string        // shot sound name; "" = default
 }
 
 // Model is the Bubble Tea model. It is used through a pointer so the
@@ -94,6 +97,13 @@ type Model struct {
 	nextScan   float64
 	scanHits   int
 	scanSaw    bool
+	style      render.Style
+	picking    bool         // choosing a blob style (first run, or c)
+	pickFirst  bool         // the first-run picker (enter starts playing)
+	pickPrev   render.Style // esc in the picker goes back to this
+	menu       bool         // the esc menu is open
+	menuSel    int
+	menuHelp   bool // the menu is showing the controls list
 	recentKeys []string
 	toast      string
 	toastUntil float64
@@ -125,6 +135,12 @@ func New(cfg Config) *Model {
 		promptRe:  promptRegexp(),
 	}
 	m.last = m.start
+	if st, ok := render.ParseStyle(cfg.Style); ok {
+		m.style = st
+	} else {
+		m.picking, m.pickFirst = true, true // shows the first time the game is on screen
+		m.world.Settle()
+	}
 	if len(cfg.Argv) > 0 {
 		m.wrap = newWrapper(cfg.Agent, cfg.Argv, cfg.Socket)
 		m.focusGame = false // the agent gets the whole screen until you open the game
@@ -253,8 +269,8 @@ func (m *Model) onTick(t time.Time) {
 		m.scanPrompt()
 	}
 
-	if m.pause != notPaused || (m.wrap != nil && !m.open) {
-		m.acc = 0 // hidden counts as paused
+	if m.pause != notPaused || m.picking || m.menu || (m.wrap != nil && !m.open) {
+		m.acc = 0 // hidden, choosing or in the menu counts as paused
 		return
 	}
 	m.acc += dt
@@ -391,6 +407,9 @@ func (m *Model) showGame(on bool) {
 	}
 	m.open = on
 	m.reopen, m.hideAt, m.nudgeUntil = false, 0, 0
+	if !on {
+		m.menu = false
+	}
 	m.relayout()
 	m.setFocus(on)
 }
@@ -442,24 +461,37 @@ func (m *Model) onKeyPress(k tea.KeyPressMsg) tea.Cmd {
 	}
 
 	name := keyName(tea.Key(k))
+	if m.menu {
+		return m.onMenuKey(name)
+	}
+	if m.picking {
+		m.onPickerKey(name)
+		return nil
+	}
 	if !k.IsRepeat {
 		m.trackEasterEggs(name)
 	}
 
 	switch s {
+	case "esc":
+		m.openMenu()
+		return nil
+	case "c":
+		m.picking, m.pickFirst, m.pickPrev = true, false, m.style
+		m.world.Settle()
+		m.in.ClearKeys()
+		return nil
 	case "m":
 		if m.cfg.Sound != nil {
-			muted := !m.cfg.Sound.Muted()
-			m.cfg.Sound.SetMuted(muted)
-			sound.SaveMuted(muted)
-			if muted {
+			m.toggleSound()
+			if m.cfg.Sound.Muted() {
 				m.flash("sound off · m turns it back on")
 			} else {
 				m.flash("sound on")
 			}
 		}
 		return nil
-	case "p", "esc":
+	case "p":
 		if m.pause == notPaused {
 			m.setPause(pausedManual)
 		} else if m.pause == pausedManual {
@@ -485,6 +517,34 @@ func (m *Model) onKeyPress(k tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+// onPickerKey: ←/→ (or a/d, 1/2) flips the style live, enter keeps it.
+// Space doesn't confirm: it's the fire key, and a player who opens the game
+// and starts shooting would pick without ever seeing the card.
+func (m *Model) onPickerKey(name string) {
+	n := render.Style(len(render.Styles))
+	switch name {
+	case "left", "a":
+		m.style = (m.style + n - 1) % n
+	case "right", "d", "tab":
+		m.style = (m.style + 1) % n
+	case "1", "2":
+		m.style = render.Style(name[0]-'1') % n
+	case "enter":
+		m.picking = false
+		m.setStyle(m.style)
+		m.cfg.Sound.Play(sound.Toggle)
+	case "esc":
+		if !m.pickFirst {
+			m.picking, m.style = false, m.pickPrev
+		}
+	}
+}
+
+func (m *Model) setStyle(st render.Style) {
+	m.style = st
+	prefs.Update(func(p *prefs.Prefs) { p.Style = st.String() })
+}
+
 func (m *Model) onMouse(msg tea.MouseMsg) {
 	mo := msg.Mouse()
 	inGame := mo.X >= m.lay.gameX && mo.Y >= m.lay.gameY &&
@@ -506,7 +566,7 @@ func (m *Model) onMouse(msg tea.MouseMsg) {
 			return
 		}
 	}
-	if !m.focusGame {
+	if !m.focusGame || m.picking || m.menu {
 		return
 	}
 	// Cell -> arena pixel. Row 0 of the pane is the HUD.
@@ -706,7 +766,27 @@ var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "
 
 func (m *Model) ui() render.UI {
 	name := firstNonEmpty(m.agentName, "agent")
-	ui := render.UI{Time: m.now, Dim: m.wrap != nil && !m.focusGame && m.pause == notPaused && m.hideAt == 0}
+	ui := render.UI{Time: m.now, Style: m.style, Dim: m.wrap != nil && !m.focusGame && m.pause == notPaused && m.hideAt == 0}
+	if m.picking && m.pause == notPaused {
+		ui.Picker, ui.PauseAccent = true, game.ColMustard
+		ui.PauseTitle = "pick your blobs"
+		var opts []string
+		for i, n := range render.Styles {
+			if render.Style(i) == m.style {
+				opts = append(opts, "▸ "+n+" ◂")
+			} else {
+				opts = append(opts, "  "+n+"  ")
+			}
+		}
+		ui.PauseBody = strings.Join(opts, "    ")
+		ui.PauseHint = "←/→ choose · enter play · c or esc menu changes it later"
+		if !m.pickFirst {
+			ui.PauseHint = "←/→ choose · enter keep · esc cancel"
+		}
+	}
+	if m.menu {
+		ui.Menu = m.menuView()
+	}
 
 	switch m.agentKind {
 	case ipc.Working:
@@ -744,7 +824,7 @@ func (m *Model) ui() render.UI {
 		ui.PauseTitle, ui.PauseBody, ui.PauseHint = "paused", "the blobs are napping", "p to resume"
 	}
 
-	hints := "wasd move · mouse/arrows aim+fire · space fire · e bomb · p pause · m sound"
+	hints := "esc menu · wasd move · mouse/arrows aim+fire · space fire · e bomb · c look · m sound"
 	if m.wrap != nil {
 		hints += " · ctrl+] hide"
 	} else {

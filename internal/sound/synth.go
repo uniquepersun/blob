@@ -39,7 +39,7 @@ var minGap = [numIDs]float64{Shoot: 0.07, Hit: 0.05, Pop: 0.04, Throw: 0.1}
 // gain balances effects against each other; the mixer's master volume
 // keeps the whole thing quiet.
 var gain = [numIDs]float64{
-	Shoot: 0.22, Hit: 0.45, Pop: 0.6, Pickup: 0.5, Quack: 0.5, Throw: 0.25,
+	Shoot: 0.42, Hit: 0.45, Pop: 0.6, Pickup: 0.5, Quack: 0.5, Throw: 0.25,
 	Boom: 0.5, Nudge: 0.35, Chime: 0.75, Done: 0.6, Toggle: 0.4,
 }
 
@@ -61,6 +61,9 @@ func tri(p float64) float64  { return 4*math.Abs(p-math.Floor(p+0.5)) - 1 }
 
 // softSquare is a square with rounded edges: chiptune-ish without the harshness.
 func softSquare(p float64) float64 { return math.Tanh(4 * sine(p)) }
+
+// hardSquare is nearly square: more bite for the shot.
+func hardSquare(p float64) float64 { return math.Tanh(10 * sine(p)) }
 
 func render(total float64, tones ...tone) []float32 {
 	out := make([]float32, secs(total))
@@ -124,10 +127,37 @@ const (
 	a5 = 880.0
 )
 
+// Shots are the most frequent sound, so there are a few to choose from.
+// BLOB_SHOT picks one; `blob sounds shots` plays each as a short volley.
+var Shots = []string{"pew", "plip", "puff", "tick", "off"}
+
+// DefaultShot is used when BLOB_SHOT is unset. Abhay wanted the fire sound
+// "a bit aggressive": pew has a crack, a falling bite and a thump.
+const DefaultShot = "pew"
+
+func shotSound(name string) []float32 {
+	switch name {
+	case "pew": // round two of "more aggressive": harder edge, bigger crack and kick
+		s := render(0.075, tone{dur: 0.075, f0: 1900, f1: 190, wave: hardSquare, decay: 5})
+		s = mix(s, scale(render(0.06, tone{dur: 0.06, f0: 950, f1: 95, wave: hardSquare, decay: 6}), 0.45)) // grit, octave down
+		s = mix(s, scale(noise(0.03, 9000, 3000, 4, 5), 0.9))                                               // crack
+		s = mix(s, scale(render(0.06, tone{dur: 0.06, f0: 210, f1: 60, wave: sine, decay: 3.5}), 1.1))      // kick
+		return scale(s, 0.62)
+	case "puff": // a soft breath of air
+		return noise(0.07, 1800, 350, 5, 4)
+	case "tick": // a tiny wooden tick
+		return render(0.03, tone{dur: 0.03, f0: 1900, f1: 1500, wave: tri, decay: 9})
+	case "off":
+		return make([]float32, secs(0.01))
+	default: // plip: a water drop, pitch falling fast
+		return render(0.05, tone{dur: 0.05, f0: 1500, f1: 420, wave: sine, decay: 6})
+	}
+}
+
 // build synthesizes every effect. It takes a few milliseconds.
-func build() [numIDs][]float32 {
+func build(shot string) [numIDs][]float32 {
 	var fx [numIDs][]float32
-	fx[Shoot] = render(0.06, tone{dur: 0.06, f0: 980, f1: 620, wave: softSquare, decay: 5})
+	fx[Shoot] = shotSound(shot)
 	fx[Hit] = render(0.09, tone{dur: 0.09, f0: 320, f1: 170, wave: tri, decay: 4})
 	fx[Pop] = mix(
 		render(0.12, tone{dur: 0.12, f0: 380, f1: 1250, wave: sine, decay: 3}),
@@ -154,6 +184,39 @@ func build() [numIDs][]float32 {
 		fx[id] = scale(fx[id], gain[id])
 	}
 	return fx
+}
+
+// pitched resamples s to play k times faster (k > 1 = higher, shorter).
+func pitched(s []float32, k float64) []float32 {
+	n := int(float64(len(s)) / k)
+	out := make([]float32, n)
+	for i := range out {
+		x := float64(i) * k
+		j := int(x)
+		if j+1 >= len(s) {
+			break
+		}
+		f := float32(x - float64(j))
+		out[i] = s[j]*(1-f) + s[j+1]*f
+	}
+	return out
+}
+
+// varied gives repeated effects a few pitches to pick from at random, so a
+// volley of shots or a run of hits doesn't sound like one stamped sample.
+func varied(fx [numIDs][]float32) [numIDs][][]float32 {
+	var out [numIDs][][]float32
+	for id, s := range fx {
+		switch ID(id) {
+		case Shoot, Hit, Pop:
+			for _, k := range []float64{0.92, 0.96, 1, 1.04, 1.08} {
+				out[id] = append(out[id], pitched(s, k))
+			}
+		default:
+			out[id] = [][]float32{s}
+		}
+	}
+	return out
 }
 
 func scale(s []float32, k float64) []float32 {

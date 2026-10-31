@@ -516,6 +516,14 @@ func (w *World) stepFX(dt float64) {
 	w.Rings = rs
 }
 
+// Settle skips the spawn pop-in so blobs show at full size while the sim is
+// frozen (the style picker shows them before the first step).
+func (w *World) Settle() {
+	for _, b := range w.Blobs {
+		b.Scale, b.ScaleVel, b.Stretch = 1, 0, 1
+	}
+}
+
 // Celebrate makes every blob hop and throws confetti (agent finished).
 func (w *World) Celebrate() {
 	for _, b := range w.Blobs {

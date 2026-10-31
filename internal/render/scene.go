@@ -30,9 +30,55 @@ var (
 	beak      = game.Hex(0xF08A3C)
 )
 
+// Style is how blobs are drawn. The player picks it on first launch and
+// can switch any time; the simulation doesn't care.
+type Style int
+
+const (
+	StyleClassic Style = iota // shaded, soft, the original look
+	StyleSimple               // flat body, outline, tall eyes
+)
+
+// Styles are the names shown in the picker and saved in prefs.
+var Styles = []string{"classic", "simple"}
+
+// ParseStyle maps a saved name back to a Style; ok is false for "" or junk.
+func ParseStyle(s string) (Style, bool) {
+	for i, n := range Styles {
+		if n == s {
+			return Style(i), true
+		}
+	}
+	return StyleClassic, false
+}
+
+func (s Style) String() string { return Styles[s] }
+
+// Menu is the esc menu: rows of label + value, one selected. Value "" is
+// an action row. Help, when set, replaces the rows with plain lines.
+type Menu struct {
+	Title string
+	Items []MenuItem
+	Sel   int
+	Hint  string
+	Help  []string
+}
+
+type MenuItem struct {
+	Label, Value string
+	Off          bool // shown dim (e.g. side layout on a narrow terminal)
+}
+
 // UI is everything outside the simulation that the frame needs to show.
 type UI struct {
-	Time float64 // wall-clock seconds, keeps animating while paused
+	Time  float64 // wall-clock seconds, keeps animating while paused
+	Style Style
+
+	// Picker shows the card (PauseTitle/Body/Hint) near the top without
+	// dimming the arena, so you can see the blobs you are choosing.
+	Picker bool
+
+	Menu *Menu // the esc menu; drawn instead of any pause card
 
 	Paused      bool
 	PauseAccent RGB
@@ -147,7 +193,11 @@ func (r *Renderer) Render(w *game.World, ui UI, cols, rows int) []string {
 	}
 	for _, b := range w.Blobs {
 		if b.Alive {
-			r.drawBlob(c, w, b, ui.Time)
+			if ui.Style == StyleSimple {
+				r.drawBlob(c, w, b, ui.Time)
+			} else {
+				r.drawBlobClassic(c, w, b, ui.Time)
+			}
 		}
 	}
 	for _, bl := range w.Bullets {
@@ -165,7 +215,7 @@ func (r *Renderer) Render(w *game.World, ui UI, cols, rows int) []string {
 		}
 	}
 
-	if ui.Paused || ui.Dim {
+	if ui.Paused || ui.Dim || ui.Menu != nil {
 		k := 0.45
 		if !ui.Paused {
 			k = 0.25
@@ -179,7 +229,9 @@ func (r *Renderer) Render(w *game.World, ui UI, cols, rows int) []string {
 	// The arena occupies rows 1..rows-2; the canvas is drawn into those rows
 	// and the HUD and hint rows are pure text.
 	ov := NewOverlay(cols, rows-2)
-	if !ui.Paused {
+	if ui.Menu != nil {
+		r.drawMenu(ov, ui.Menu, ui.Time)
+	} else if !ui.Paused {
 		for _, p := range w.Popups {
 			a := p.Life / p.MaxLife
 			x, y := r.px(p.Pos)
@@ -194,6 +246,9 @@ func (r *Renderer) Render(w *game.World, ui UI, cols, rows int) []string {
 		}
 	} else {
 		r.drawSleepy(ov, w, ui.Time)
+		r.drawCard(ov, ui)
+	}
+	if ui.Picker && ui.Menu == nil {
 		r.drawCard(ov, ui)
 	}
 
@@ -318,6 +373,91 @@ func (r *Renderer) drawBlob(c *Canvas, w *game.World, b *game.Blob, t float64) {
 		c.Set(int(cx)-1, top-1, hc)
 		c.Set(int(cx), top-1, Mix(hc, white, 0.3))
 		c.Set(int(cx)+1, top-1, hc)
+	}
+}
+
+func (r *Renderer) drawBlobClassic(c *Canvas, w *game.World, b *game.Blob, t float64) {
+	breath := 1 + 0.03*math.Sin(t*2.4+b.Phase)
+	s := math.Max(0.05, b.Scale*breath)
+	R := game.BlobRadius * s
+	st := math.Max(0.55, b.Stretch)
+	cx, cy := b.Pos.X+r.off.X, b.Pos.Y+r.off.Y
+	sinA, cosA := math.Sincos(b.StretchAngle)
+
+	base := b.Color
+	duck := b.DuckTime > 0
+	ext := R*1.4 + 1
+	for y := int(cy - ext); y <= int(cy+ext); y++ {
+		for x := int(cx - ext); x <= int(cx+ext); x++ {
+			dx := float64(x) + 0.5 - cx
+			dy := float64(y) + 0.5 - cy
+			// Rotate into the stretch frame; stretch is area-preserving.
+			u := (dx*cosA + dy*sinA) / (R * st)
+			v := (-dx*sinA + dy*cosA) / (R / st)
+			rr := u*u + v*v
+			if rr > 1 {
+				continue
+			}
+			nx, ny := dx/R, dy/R
+			col := base
+			switch {
+			case (nx+0.38)*(nx+0.38)+(ny+0.42)*(ny+0.42) < 0.09:
+				col = Mix(base, white, 0.55)
+			case (nx+0.2)*(nx+0.2)+(ny+0.2)*(ny+0.2) < 0.3:
+				col = Mix(base, white, 0.15)
+			case ny > 0.25 && rr > 0.5:
+				col = Scale(base, 0.72)
+			}
+			if rr > 0.82 {
+				col = Scale(col, 0.88)
+			}
+			if duck && rr > 0.7 {
+				hue := []RGB{game.ColTomato, game.ColMustard, game.ColSage, game.ColPeriwinkle}
+				col = Mix(col, hue[int(t*12+math.Atan2(dy, dx)*2+10)%len(hue)], 0.75)
+			}
+			if b.Flash > 0 {
+				col = Mix(col, white, 0.75)
+			} else if b.Shield > 0 && int(t*10)%2 == 0 {
+				col = Mix(col, white, 0.3)
+			}
+			c.Set(x, y, col)
+		}
+	}
+
+	// Eyes look where the blob is aiming.
+	if b.Blink <= 0 && s > 0.45 {
+		look := b.Aim.Mul(R * 0.3)
+		perp := b.Aim.Perp().Norm().Mul(R * 0.36)
+		e1 := game.V(cx, cy-R*0.12).Add(look).Add(perp)
+		e2 := game.V(cx, cy-R*0.12).Add(look).Sub(perp)
+		c.Set(int(e1.X), int(e1.Y), eye)
+		c.Set(int(e2.X), int(e2.Y), eye)
+		if b.Scale > 1.12 { // happy blush after a pickup or a pop
+			c.Blend(int(e1.X), int(e1.Y)+1, game.ColCoral, 0.6)
+			c.Blend(int(e2.X), int(e2.Y)+1, game.ColCoral, 0.6)
+		}
+	}
+
+	if w.Party { // party hat
+		hc := []RGB{game.ColTomato, game.ColSage, game.ColMustard, game.ColPeriwinkle}[b.ID%4]
+		top := int(cy - R/st - 0.5)
+		c.Set(int(cx), top-3, game.ColGold)
+		c.Set(int(cx), top-2, hc)
+		c.Set(int(cx)-1, top-1, hc)
+		c.Set(int(cx), top-1, Mix(hc, white, 0.3))
+		c.Set(int(cx)+1, top-1, hc)
+	}
+
+	if b.HP < b.MaxHP { // tiny health pips under the blob
+		y := int(cy + R + 2)
+		x0 := int(cx) - (b.MaxHP-1)/2*2 - (b.MaxHP-1)%2
+		for i := 0; i < b.MaxHP; i++ {
+			col := Scale(game.ColCream, 0.35)
+			if i < b.HP {
+				col = game.ColCream
+			}
+			c.Blend(x0+i*2, y, col, 0.9)
+		}
 	}
 }
 
@@ -473,6 +613,9 @@ func (r *Renderer) drawCard(ov *Overlay, ui UI) {
 	h := len(lines) + 2
 	x0 := (ov.Cols - inner - 2) / 2
 	y0 := max(0, (ov.Rows-h)/2)
+	if ui.Picker {
+		y0 = min(1, max(0, ov.Rows-h))
+	}
 	pulse := 0.5 + 0.5*math.Sin(ui.Time*4)
 	border := Mix(Scale(ui.PauseAccent, 0.6), ui.PauseAccent, pulse)
 	bg := cardBg
@@ -496,6 +639,70 @@ func (r *Renderer) drawCard(ov *Overlay, ui UI) {
 }
 
 // wrap breaks s into lines of at most w runes on spaces.
+func (r *Renderer) drawMenu(ov *Overlay, m *Menu, t float64) {
+	accent := game.ColPeriwinkle
+	var rows []string
+	labelW, valueW := 0, 0
+	for _, it := range m.Items {
+		labelW = max(labelW, Width(it.Label))
+		valueW = max(valueW, Width(it.Value)+4) // room for ◀ ▶
+	}
+	inner := labelW + valueW + 6
+	if m.Help != nil {
+		rows = m.Help
+		for _, l := range rows {
+			inner = max(inner, Width(l)+4)
+		}
+	} else {
+		rows = make([]string, len(m.Items))
+	}
+	inner = max(inner, Width(m.Title)+4, Width(m.Hint)+4)
+	inner = min(inner, ov.Cols-4)
+	h := len(rows) + 6
+	x0 := (ov.Cols - inner - 2) / 2
+	y0 := max(0, (ov.Rows-h)/2)
+	bg := cardBg
+	border := Mix(Scale(accent, 0.6), accent, 0.5+0.5*math.Sin(t*3))
+	ov.Fill(x0, y0, inner+2, h, bg)
+	ov.Text(x0, y0, "╭"+strings.Repeat("─", inner)+"╮", border, &bg, false)
+	ov.Text(x0, y0+h-1, "╰"+strings.Repeat("─", inner)+"╯", border, &bg, false)
+	for i := 1; i < h-1; i++ {
+		ov.Text(x0, y0+i, "│", border, &bg, false)
+		ov.Text(x0+inner+1, y0+i, "│", border, &bg, false)
+	}
+	ov.Text(x0+1+(inner-Width(m.Title))/2, y0+1, m.Title, accent, &bg, true)
+	for i, l := range rows {
+		y := y0 + 3 + i
+		if m.Help != nil {
+			ov.Text(x0+3, y, Trunc(l, inner-4), hudFg, &bg, false)
+			continue
+		}
+		it := m.Items[i]
+		fg, rowBg := hudFg, bg
+		if it.Off {
+			fg = hudDim
+		}
+		if i == m.Sel {
+			rowBg = Mix(bg, accent, 0.22)
+			ov.Fill(x0+1, y, inner, 1, rowBg)
+			ov.Text(x0+2, y, "▸", game.ColMustard, &rowBg, true)
+		}
+		ov.Text(x0+4, y, it.Label, fg, &rowBg, i == m.Sel)
+		if it.Value != "" {
+			v := it.Value
+			if i == m.Sel {
+				v = "◀ " + v + " ▶"
+			}
+			vfg := game.ColMustard
+			if it.Off {
+				vfg = hudDim
+			}
+			ov.Text(x0+inner-1-Width(v), y, v, vfg, &rowBg, false)
+		}
+	}
+	ov.Text(x0+1+(inner-Width(m.Hint))/2, y0+h-2, Trunc(m.Hint, inner-2), hudDim, &bg, false)
+}
+
 func wrap(s string, w int) []string {
 	if Width(s) <= w {
 		return []string{s}

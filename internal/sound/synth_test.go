@@ -6,9 +6,18 @@ import (
 )
 
 func TestEffectsAreShortCleanAndAudible(t *testing.T) {
-	fx := build()
+	for _, shot := range Shots {
+		checkEffects(t, shot)
+	}
+}
+
+func checkEffects(t *testing.T, shot string) {
+	fx := build(shot)
 	for id, s := range fx {
-		name := Names[id]
+		name := Names[id] + "/" + shot
+		if ID(id) == Shoot && shot == "off" {
+			continue
+		}
 		if len(s) == 0 || len(s) > rate*2 {
 			t.Errorf("%s: %d samples", name, len(s))
 			continue
@@ -31,7 +40,7 @@ func TestEffectsAreShortCleanAndAudible(t *testing.T) {
 }
 
 func TestMixerRateLimitsAndDrains(t *testing.T) {
-	p := &Player{fx: build(), ready: true}
+	p := &Player{fx: varied(build(DefaultShot)), ready: true}
 	p.Play(Shoot)
 	p.Play(Shoot) // inside minGap: skipped
 	if len(p.voices) != 1 {

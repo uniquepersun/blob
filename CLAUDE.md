@@ -28,7 +28,7 @@ match. When the agent finishes, confetti, then a "done" card.
 - Give complete file replacements, not diff-style patches.
 - Commits are Abhay's alone: never add `Co-Authored-By: Claude` or any
   Claude attribution to commits or PRs.
-- Always fetch/pull before pushing (he edits the repo on GitHub too), and
+- Always fetch/pull before pushing (Abhay edits the repo on GitHub too), and
   don't push without being asked.
 - Be direct and technically substantive; push back clearly when something
   won't work as asked, and offer the alternative.
@@ -210,6 +210,27 @@ internal/ipc     Unix socket, one JSON line per event; kinds: working,
 - Socket: standalone `$XDG_RUNTIME_DIR` or tmpdir `/blob-<uid>.sock`;
   wrapper `blob-<uid>-<pid>.sock`, exported to the agent as `BLOB_SOCKET`.
 
+### Esc menu (internal/app/menu.go)
+- Abhay: "if I click esc, it should open the menu for the complete game".
+  esc opens it (p is the plain pause now). Rows: resume, blob look, sound,
+  shot sound (plays a preview), bots 1-6 (starts a new match), game size
+  40-80% and game panel below/right (wrapper only), controls (help list),
+  new match, hide game / quit blob. ↑/↓ select, ←/→ change, enter, esc.
+- Every change applies live and saves to prefs (style, muted, shot, bots,
+  game_pct, side). main.go: prefs first, BLOB_* env overrides one run.
+- Rendered by render.drawMenu (UI.Menu), dims the arena like a pause.
+
+### Blob look (render.Style)
+- Two looks, player's choice (Abhay prefers classic): `classic` = the
+  original shaded blob (drawBlobClassic, with HP pips) and `simple` = flat
+  body + outline (cream for the player) + tall eyes (drawBlob).
+- First run (no style in prefs): "pick your blobs" card near the top over
+  the undimmed, frozen arena (World.Settle skips the spawn pop-in);
+  ←/→ flips live, enter plays. Space does NOT confirm (it's fire: Abhay
+  missed the first-run picker that way). `c` reopens the picker, esc
+  cancels it. Saved via internal/prefs.
+- The floor speckles stayed at the quieter (halved) density for both.
+
 ### Sound (internal/sound)
 - Abhay's call: on by default, quiet (master 0.45), `m` toggles and is
   saved to `os.UserConfigDir()/blob/settings.json`; `BLOB_SOUND=0/1`
@@ -217,6 +238,12 @@ internal/ipc     Unix socket, one JSON line per event; kinds: working,
 - All effects synthesized at startup in synth.go (sine/tri/soft-square
   tones with glide + exp decay, filtered noise for booms/whooshes). Tune
   there; `blob sounds` plays each one. Tests check peak, NaN, silent tails.
+- Shots: Abhay disliked the first (square-wave) shot. Candidates in
+  synth.go `shotSound`: pew (default; asked twice for "more aggressive":
+  near-square 1900→190Hz + octave-down grit + noise crack + kick), plip,
+  puff, tick, off; also chosen in the esc menu;
+  `blob sounds shots` auditions them, BLOB_SHOT picks. Shoot/Hit/Pop get
+  5 random pitch variants (±8%) so repeats don't sound stamped.
 - One oto v3.5 stream, our mixer is its io.Reader (float32 mono 44.1k,
   ~23ms buffer, tanh soft clip, per-effect min gap so burst fire doesn't
   buzz). oto 3.5 is cgo-free on macOS (purego) and Linux (pure-Go

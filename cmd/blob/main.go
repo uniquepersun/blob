@@ -25,6 +25,7 @@ import (
 	"github.com/uniquepersun/blob/internal/hook"
 	"github.com/uniquepersun/blob/internal/install"
 	"github.com/uniquepersun/blob/internal/ipc"
+	"github.com/uniquepersun/blob/internal/prefs"
 	"github.com/uniquepersun/blob/internal/sound"
 )
 
@@ -55,7 +56,7 @@ func main() {
 	case "send":
 		os.Exit(runSend(args[1:]))
 	case "sounds":
-		os.Exit(runSounds())
+		os.Exit(runSounds(args[1:]))
 	case "version", "--version", "-v":
 		fmt.Println("blob", version)
 		return
@@ -84,13 +85,16 @@ const usage = `blob: a cozy blob shooter for while your agent works
   blob uninstall <agent>     remove hooks
   blob send <working|attention|done> [message]   fake an event (testing)
   blob sounds                play every sound effect once
+  blob sounds shots          compare the shot sounds (BLOB_SHOT=name picks one)
 
 in game: wasd move · mouse or arrows aim+fire · space fire · e bomb
-         p pause · m sound on/off · ctrl+] show/hide the game (wrapper)
+         esc menu (every setting lives there) · p pause · m sound · c blob look
+         ctrl+] show/hide the game (wrapper)
 
-wrapper layout (environment):
+one-run overrides (the esc menu saves these for good):
   BLOB_GAME_PCT=60           game panel height in percent of the terminal
   BLOB_LAYOUT=side           open the game on the right instead of below
+  BLOB_SHOT=pew|plip|puff|tick|off   shot sound
 
 sound: on and quiet by default; m toggles it and blob remembers.
   BLOB_SOUND=0 | 1           force it off or on for this run
@@ -98,7 +102,21 @@ sound: on and quiet by default; m toggles it and blob remembers.
 `
 
 func play(cfg app.Config) int {
-	cfg.Sound = sound.New(sound.StartMuted())
+	// Saved settings (the esc menu writes them); environment variables
+	// override for one run without saving.
+	saved := prefs.Load()
+	cfg.Style = saved.Style
+	cfg.Bots = saved.Bots
+	cfg.Shot = firstSet(os.Getenv("BLOB_SHOT"), saved.Shot)
+	cfg.GamePct = saved.GamePct
+	if pct, err := strconv.Atoi(os.Getenv("BLOB_GAME_PCT")); err == nil {
+		cfg.GamePct = pct
+	}
+	cfg.Side = saved.Side
+	if l := os.Getenv("BLOB_LAYOUT"); l != "" {
+		cfg.Side = l == "side"
+	}
+	cfg.Sound = sound.New(sound.StartMuted(saved.Muted), cfg.Shot)
 	defer cfg.Sound.Close()
 	m := app.New(cfg)
 	p := tea.NewProgram(m)
@@ -131,14 +149,14 @@ func wrap(name string, argv []string) int {
 	// Each wrapped session gets its own socket; the agent inherits
 	// BLOB_SOCKET, so its hooks reach this window and not some other game.
 	sock := filepath.Join(filepath.Dir(ipc.SocketPath()), fmt.Sprintf("blob-%d-%d.sock", os.Getuid(), os.Getpid()))
-	pct, _ := strconv.Atoi(os.Getenv("BLOB_GAME_PCT"))
-	return play(app.Config{
-		Socket:  sock,
-		Agent:   name,
-		Argv:    argv,
-		Side:    os.Getenv("BLOB_LAYOUT") == "side",
-		GamePct: pct,
-	})
+	return play(app.Config{Socket: sock, Agent: name, Argv: argv})
+}
+
+func firstSet(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // runHook is what agents execute. It reads the hook payload, forwards one
@@ -240,11 +258,27 @@ func runSend(args []string) int {
 	return 0
 }
 
-func runSounds() int {
-	p := sound.New(false)
+func runSounds(args []string) int {
+	p := sound.New(false, "")
 	defer p.Close()
 	if !p.WaitReady(3 * time.Second) {
 		die("no audio device found")
+	}
+	if len(args) > 0 && args[0] == "shots" {
+		for _, shot := range sound.Shots {
+			p.SetShot(shot)
+			fmt.Printf("%-5s  BLOB_SHOT=%s\n", shot, shot)
+			for i := 0; i < 6; i++ { // a pea-shooter volley
+				p.Play(sound.Shoot)
+				time.Sleep(300 * time.Millisecond)
+			}
+			for i := 0; i < 10; i++ { // a burst-blaster volley
+				p.Play(sound.Shoot)
+				time.Sleep(85 * time.Millisecond)
+			}
+			time.Sleep(700 * time.Millisecond)
+		}
+		return 0
 	}
 	for id, name := range sound.Names {
 		fmt.Println(name)

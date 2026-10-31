@@ -2,11 +2,10 @@ package sound
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -27,7 +26,7 @@ type voice struct {
 // goroutine and never blocks on audio.
 type Player struct {
 	mu     sync.Mutex
-	fx     [numIDs][]float32
+	fx     [numIDs][][]float32 // pitch variants per effect
 	voices []voice
 	last   [numIDs]time.Time
 	muted  bool
@@ -48,8 +47,27 @@ func (p *Player) logf(format string, a ...any) {
 
 // New starts audio in the background. If no device turns up, the player
 // stays silent.
-func New(muted bool) *Player {
-	p := &Player{fx: build(), muted: muted, t0: time.Now()}
+func New(muted bool, shot string) *Player {
+	if shot == "" {
+		shot = DefaultShot
+	}
+	return newPlayer(muted, shot)
+}
+
+// SetShot swaps the shot sound (for auditioning; oto allows one context
+// per process, so this reuses the player).
+func (p *Player) SetShot(shot string) {
+	if p == nil {
+		return
+	}
+	fx := varied(build(shot))
+	p.mu.Lock()
+	p.fx[Shoot] = fx[Shoot]
+	p.mu.Unlock()
+}
+
+func newPlayer(muted bool, shot string) *Player {
+	p := &Player{fx: varied(build(shot)), muted: muted, t0: time.Now()}
 	if f := os.Getenv("BLOB_SOUND_LOG"); f != "" {
 		p.log, _ = os.Create(f)
 	}
@@ -139,11 +157,15 @@ func (p *Player) Play(id ID) {
 	if len(p.voices) >= maxVoices {
 		p.voices = p.voices[1:]
 	}
-	p.voices = append(p.voices, voice{s: p.fx[id]})
+	vs := p.fx[id]
+	p.voices = append(p.voices, voice{s: vs[rand.Intn(len(vs))]})
 }
 
 // Muted reports the current setting.
 func (p *Player) Muted() bool {
+	if p == nil {
+		return true
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.muted
@@ -209,7 +231,7 @@ func (p *Player) Close() {
 
 // Duration of an effect, for `blob sounds`.
 func (p *Player) Duration(id ID) time.Duration {
-	return time.Duration(float64(len(p.fx[id])) / rate * float64(time.Second))
+	return time.Duration(float64(len(p.fx[id][0])) / rate * float64(time.Second))
 }
 
 // WaitReady blocks until audio is up or the timeout passes.
@@ -226,43 +248,14 @@ func (p *Player) WaitReady(timeout time.Duration) bool {
 	}
 }
 
-// Settings that survive restarts. BLOB_SOUND=0/1 overrides without saving.
-
-type settings struct {
-	Muted bool `json:"muted"`
-}
-
-func settingsPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(dir, "blob", "settings.json")
-}
-
-// StartMuted decides whether sound starts off: BLOB_SOUND wins, then the
-// saved setting, then on.
-func StartMuted() bool {
+// StartMuted decides whether sound starts off: BLOB_SOUND wins over the
+// saved setting.
+func StartMuted(saved bool) bool {
 	switch os.Getenv("BLOB_SOUND") {
 	case "0", "off", "false":
 		return true
 	case "1", "on", "true":
 		return false
 	}
-	var s settings
-	if b, err := os.ReadFile(settingsPath()); err == nil {
-		_ = json.Unmarshal(b, &s)
-	}
-	return s.Muted
-}
-
-// SaveMuted remembers the m key across runs. Errors are ignored.
-func SaveMuted(m bool) {
-	path := settingsPath()
-	if path == "" {
-		return
-	}
-	_ = os.MkdirAll(filepath.Dir(path), 0o755)
-	b, _ := json.Marshal(settings{Muted: m})
-	_ = os.WriteFile(path, b, 0o644)
+	return saved
 }
